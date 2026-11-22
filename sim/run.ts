@@ -18,8 +18,8 @@ for (let s = seed0; s < seed0 + n; s++) {
   mySlots.add(s % 16); mySlots.add((s * 7 + 3) % 16)
   for (let i = 0; i < 16; i++) {
     if (mySlots.has(i)) facs.push((h, m) => { const b: any = V.make(mine, h, m); b.name = "MINE"; return b })
-    else if (field === "rusher" || (field === "mixed" && i % 2 === 0)) facs.push((h, m) => new Rusher(h, m))
-    else facs.push((h, m) => { const b: any = V.make(args.opp ?? "hunter", h, m); b.name = "opp"; return b })
+    else if (field === "rusher" || (field === "mixed" && i % 2 === 0) || (field === "promix" && i % 3 === 0)) facs.push((h, m) => new Rusher(h, m))
+    else facs.push((h, m) => { const b: any = V.make(args.opp ?? (field === "pro" || field === "promix" ? "pro" : "hunter"), h, m); b.name = "opp"; return b })
   }
   const t0 = performance.now()
   const sim = new Sim(map, cfg, s * 1000 + 17, facs)

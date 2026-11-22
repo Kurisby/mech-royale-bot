@@ -52,6 +52,11 @@ export interface BrainOpts {
   name?: string
   aggression?: number // 0..1
   farm?: boolean
+  hunt?: boolean
+  homeMode?: string
+  duck?: boolean
+  coverCheck?: boolean
+  lootFar?: boolean
 }
 
 export class Brain {
@@ -266,7 +271,9 @@ export class Brain {
       const need = 1.3 - (agg - 0.5)
       const favorable = ratio > need || target.hp < 250
       const byTarget = underFire && this.lastDamageBy === target.id
-      if (late) {
+      if (this.opts.hunt) {
+        if (d < 260 && (hasLos || t - target.seenT < 5)) { mode = "fight"; fightTarget = target }
+      } else if (late) {
         if (hasLos && d < 240) { mode = "fight"; fightTarget = target }
         else if (favorable && d < 150) { mode = "fight"; fightTarget = target }
         else if (tSees) { mode = "evade"; fightTarget = target }
@@ -280,6 +287,12 @@ export class Brain {
         fightTarget = target
         mode = favorable ? "fight" : "evade"
       }
+    }
+    if (mode === "evade" && fightTarget && (this.opts.coverCheck ?? false)) {
+      // only run if there is cover close by; running in the open just eats laser shots
+      this.evadeMove(pos, fightTarget, nextC, nextR, zNow)
+      const d = hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1])
+      if (!this.evadeHidden && t - fightTarget.losT < 0.6 && d < 230) mode = "fight"
     }
     if (mode !== "travel") this.lastCombatT = t
 
@@ -310,7 +323,8 @@ export class Brain {
         const curSec = secW ? WEAPON_PRIO[secW.kind] ?? 0 : -1
         if (pr <= curSec) continue
         const d = hyp(p.pos[0] - pos[0], p.pos[1] - pos[1])
-        if (d > (mode === "evade" ? 25 : 90)) continue
+        const lootR = mode === "evade" ? 25 : (!secW && (this.opts.lootFar ?? false) ? 160 : 90)
+        if (d > lootR) continue
         if (Math.abs(p.pos[2] - pos[2]) > 3.5 && d < 8) continue // on a roof
         if (!zoneSafeFor([p.pos[0], p.pos[1]], 5) && d > 20) continue
         const v = pr * 30 - d
@@ -359,7 +373,7 @@ export class Brain {
         else npcFlee = n
       }
     }
-    if (!farmTarget && (this.opts.farm ?? true) && calm && !urgent && gun && hpFrac > 0.5 && t < 330) {
+    if (!farmTarget && (this.opts.farm ?? false) && calm && !urgent && gun && hpFrac > 0.5 && t < 330) {
       let best: any = null, bd = Infinity
       for (const c of obs.crates ?? []) {
         const d = hyp(c.pos[0] - pos[0], c.pos[1] - pos[1])
@@ -391,6 +405,15 @@ export class Brain {
       }
     }
 
+    if (this.opts.hunt && mode === "travel" && !urgent && goalWhy === "home") {
+      const loud = this.heard.filter((h) => (h.kind === "gun" || h.kind === "laser" || h.kind === "lightning" || h.kind === "mortar") && h.dist !== "far" && t - h.t < 4).sort((a, b) => b.t - a.t)[0]
+      if (loud) {
+        const r = loud.dist === "near" ? 40 : 110
+        const gx = pos[0] + Math.cos(loud.bearing) * r, gy = pos[1] + Math.sin(loud.bearing) * r
+        if (zoneSafeFor([gx, gy], 10)) { goal = [gx, gy]; goalWhy = "hunt" }
+      }
+    }
+
     // ---- movement vector
     let move: P2 = [0, 0]
     let boost = false
@@ -403,7 +426,8 @@ export class Brain {
       move = this.evadeMove(pos, fightTarget, nextC, nextR, zNow)
       boost = me.energy > 30
     } else if (mode === "fight" && fightTarget) {
-      move = this.fightMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac)
+      if (t - fightTarget.losT > 1.0) move = this.navMove(pos, [fightTarget.pos[0], fightTarget.pos[1]], [])
+      else move = this.fightMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac)
     } else if (goal) {
       const gd = hyp(goal[0] - pos[0], goal[1] - pos[1])
       const arrive = goalWhy === "home" ? 6 : 1.5
@@ -413,6 +437,19 @@ export class Brain {
       }
       if (urgent && me.energy > 25) boost = true
       if (!inZoneNow && me.energy > 5) boost = true
+    }
+    // laser threat: an enemy charging a laser at us with line of sight -> duck behind cover if it is close
+    if (this.opts.duck ?? true) {
+      const threat = enemies.find((e) => e.charging && t - e.losT < 0.4 && this.isAimingAt(e, pos, 0.1) && hyp(e.pos[0] - pos[0], e.pos[1] - pos[1]) < 290)
+      if (threat) {
+        const spot = this.quickCover(pos, threat)
+        if (spot) {
+          const dx = spot[0] - pos[0], dy = spot[1] - pos[1], L = hyp(dx, dy) || 1
+          move = [dx / L, dy / L]
+          if (me.grounded && me.energy > 10) boost = true
+          this.label = "duck"
+        }
+      }
     }
     // zone override: never walk out
     {
@@ -552,9 +589,29 @@ export class Brain {
     return act
   }
 
-  isAimingAt(e: Track, pos: V3) {
+  isAimingAt(e: Track, pos: V3, tol = 0.15) {
     const a = Math.atan2(pos[1] - e.pos[1], pos[0] - e.pos[0])
-    return Math.abs(wrap(a - e.aim[0])) < 0.15
+    return Math.abs(wrap(a - e.aim[0])) < tol
+  }
+
+  quickCover(pos: V3, e: Track): P2 | null {
+    // nearest point within ~12 m that hides us from e (body center and head)
+    const ez = e.pos[2] + 8
+    let best: P2 | null = null, bd = Infinity
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * TAU
+      for (const r of [4, 7, 10, 13]) {
+        const x = pos[0] + Math.cos(a) * r, y = pos[1] + Math.sin(a) * r
+        if (this.map.blocked[this.map.gIdx(x, y)]) break
+        if (!this.map.clearLine(pos[0], pos[1], x, y)) break
+        const z = this.map.surfAt(x, y)
+        if (!this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 4.5) && !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 9)) {
+          if (r < bd) { bd = r; best = [x, y] }
+          break
+        }
+      }
+    }
+    return best
   }
 
   leadAim(pos: V3, muzzleZ: number, tp: V3, tv: V3, zoff: number, speed: number): [number, number] {
@@ -619,16 +676,28 @@ export class Brain {
   }
 
   pickHome(pos: V3, c: P2, r: number, enemies: Track[]): P2 {
-    // sample candidates inside the next circle
     const m = this.map
     let best: P2 = [c[0], c[1]], bv = Infinity
-    const R = Math.max(5, r * 0.6)
+    const edge = (this.opts.homeMode ?? "edge") === "edge"
+    // anchor: for "edge", the point inside the next circle closest to us (with a margin)
+    const margin = Math.max(18, r * 0.3)
+    const dc = hyp(pos[0] - c[0], pos[1] - c[1])
+    const ar = Math.max(0, Math.min(dc, r - margin))
+    const anchor: P2 = dc > 1 ? [c[0] + ((pos[0] - c[0]) / dc) * ar, c[1] + ((pos[1] - c[1]) / dc) * ar] : [c[0], c[1]]
     const N = 90
     for (let k = 0; k < N; k++) {
-      const a = this.rng.next() * TAU
-      const rr = Math.sqrt(this.rng.next()) * R
-      let x = c[0] + Math.cos(a) * rr, y = c[1] + Math.sin(a) * rr
-      if (k === 0) { x = c[0]; y = c[1] }
+      let x: number, y: number
+      if (edge) {
+        const a = this.rng.next() * TAU, rr = Math.sqrt(this.rng.next()) * Math.max(15, Math.min(60, r * 0.4))
+        x = anchor[0] + Math.cos(a) * rr; y = anchor[1] + Math.sin(a) * rr
+        if (k === 0) { x = anchor[0]; y = anchor[1] }
+        if (hyp(x - c[0], y - c[1]) > r - Math.min(margin, r * 0.5) * 0.6) continue
+      } else {
+        const a = this.rng.next() * TAU
+        const rr = Math.sqrt(this.rng.next()) * Math.max(5, r * 0.6)
+        x = c[0] + Math.cos(a) * rr; y = c[1] + Math.sin(a) * rr
+        if (k === 0) { x = c[0]; y = c[1] }
+      }
       const g = m.gIdx(x, y)
       if (m.blocked[g]) continue
       const z = m.surfAt(x, y)
@@ -636,7 +705,7 @@ export class Brain {
       const exp = this.exposure(x, y, z)
       const dist = hyp(x - pos[0], y - pos[1])
       const centr = hyp(x - c[0], y - c[1]) / Math.max(1, r)
-      let v = exp * 120 + dist * 0.25 + centr * 60
+      let v = exp * 120 + dist * (edge ? 0.6 : 0.25) + (edge ? 0 : centr * 60)
       if (wd > 12) v += 20
       for (const e of enemies) {
         const de = hyp(x - e.pos[0], y - e.pos[1])
@@ -723,7 +792,7 @@ export class Brain {
     const t = this.t
     if (!this.evadeGoal || t - this.evadeT > 1.5) {
       this.evadeT = t
-      let best: P2 | null = null, bv = Infinity
+      let best: P2 | null = null, bv = Infinity, bestHidden = false
       const ez = e.pos[2] + 8
       for (let k = 0; k < 40; k++) {
         const a = this.rng.next() * TAU
@@ -738,9 +807,10 @@ export class Brain {
         let v = r * 0.6 - de * 0.3 + (hidden ? 0 : 60)
         if (dz > zNow.r - 5) v += 200
         if (hyp(x - nextC[0], y - nextC[1]) > nextR) v += 15
-        if (v < bv) { bv = v; best = [x, y] }
+        if (v < bv) { bv = v; best = [x, y]; bestHidden = hidden && r < 35 }
       }
       this.evadeGoal = best
+      this.evadeHidden = bestHidden
     }
     if (this.evadeGoal) return this.navMove(pos, this.evadeGoal, [])
     return [-(e.pos[0] - pos[0]) / 100, -(e.pos[1] - pos[1]) / 100]
@@ -748,6 +818,7 @@ export class Brain {
   jetOk = false
   npcDmgT = -99
   npcDmgBy: number | null = null
+  evadeHidden = true
   evadeGoal: P2 | null = null
   evadeT = -99
 }
