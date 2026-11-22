@@ -32,6 +32,9 @@ interface Proj { id: number; kind: string; owner: number; pos: V3; vel: V3; dist
 interface Npc { id: number; pos: V3; vel: V3; home: [number, number]; hp: number; target: number | null; cd: number; wander: [number, number]; wt: number; aim: number; alive: boolean }
 
 export class Sim {
+  static maxMs = 0
+  static slow = 0
+  static calls = 0
   map: GameMap
   cfg: any
   rng: SRng
@@ -246,7 +249,7 @@ export class Sim {
   maxHp(m: Mech) { return m.stats.hp * (1 + this.cfg.cubes.hp_per_cube * Math.min(m.cubes, this.cfg.cubes.stat_cap)) }
   inZone(m: Mech) { const z = this.zoneNow(); return hyp(m.pos[0] - z.c[0], m.pos[1] - z.c[1]) <= z.r }
 
-  damage(target: Mech, amount: number, weapon: string, by: Mech | null, from: V3 | null) {
+  damage(target: Mech, amount: number, weapon: string, by: Mech | null, from: V3 | null, byId: number | null = null) {
     if (!target.alive) return 0
     let a = amount
     let rear = false
@@ -257,9 +260,10 @@ export class Sim {
     if (weapon !== "zone") a *= 1 - Math.min(0.9, target.stats.armor)
     if (by && by.id === target.id) a *= this.cfg.mech.self_damage_mult
     target.hp -= a
+    ;(target as any).lastW = weapon
     target.lastDmgT = this.t
     const bearing = from ? Math.atan2(from[1] - target.pos[1], from[0] - target.pos[0]) : null
-    target.events.push({ type: "damaged", amount: a, weapon, bearing, by: by ? by.id : null, ...(rear ? { rear: true } : {}) })
+    target.events.push({ type: "damaged", amount: a, weapon, bearing, by: by ? by.id : byId, ...(rear ? { rear: true } : {}) })
     if (by && by.id !== target.id) { by.lastDmgT = this.t; by.events.push({ type: "hit", target: target.id, amount: a, weapon, ...(rear ? { rear: true } : {}) }) }
     if (target.hp <= 0) this.kill(target, by)
     return a
@@ -443,7 +447,7 @@ export class Sim {
       let done = false
       if (h && h.f <= wf) {
         if (p.kind === "gun") this.applyHit(h, p.dmg, "gun", owner, a)
-        else if (p.kind === "npc") { if (h.kind === "mech") this.damage(h.obj, p.dmg, "npc", null, a) }
+        else if (p.kind === "npc") { if (h.kind === "mech") this.damage(h.obj, p.dmg, "npc", null, a, p.owner) }
         else { const f = h.f; this.explode(p, [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f], h.obj) }
         done = true
       } else if (wf <= 1) {
@@ -663,7 +667,10 @@ export class Sim {
       for (const m of alive) {
         const obs = this.buildObs(m)
         let act: any
+        const t0 = performance.now()
         try { act = m.ctrl.act(obs) } catch (e) { act = null; if (m.missed++ < 3) console.error("bot", m.id, "threw", e) }
+        const dtm = performance.now() - t0
+        if (m.ctrl.name === 'MINE') { Sim.maxMs = Math.max(Sim.maxMs, dtm); if (dtm > 15) Sim.slow++; Sim.calls++ }
         if (act) m.action = act
         else m.action = { move: m.action.move, aim: m.action.aim, boost: m.action.boost }
         this.handleOneShots(m)
@@ -733,7 +740,7 @@ export class Sim {
       for (const id of ids) this.mechs[id].place = p
       p += ids.length
     }
-    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT }))
+    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT, cause: m.alive ? 'alive' : (m as any).lastW }))
   }
 }
 

@@ -27,6 +27,7 @@ for (let s = seed0; s < seed0 + n; s++) {
   const ms = performance.now() - t0
   for (const x of r) res.push({ seed: s, ...x })
   const mineR = r.filter((x) => x.name === "MINE")
-  console.error(`seed ${s} ${ms.toFixed(0)}ms t=${sim.t.toFixed(0)} mine places ${mineR.map((x) => x.place + "(" + x.deathT.toFixed(0) + "s,k" + x.kills + ",c" + x.cubes + ")").join(" ")}`)
+  console.error(`seed ${s} ${ms.toFixed(0)}ms t=${sim.t.toFixed(0)} mine places ${mineR.map((x) => x.place + "(" + x.cause + "," + x.deathT.toFixed(0) + "s,k" + x.kills + ",c" + x.cubes + ")").join(" ")}`)
 }
+console.error("timing max", Sim.maxMs.toFixed(1), "slow", Sim.slow, "of", Sim.calls)
 console.log(JSON.stringify(res))

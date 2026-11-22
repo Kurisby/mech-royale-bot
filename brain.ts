@@ -151,7 +151,8 @@ export class Brain {
     // ---- events
     for (const e of obs.events ?? []) {
       if (e.type === "damaged") {
-        if (e.weapon !== "zone") {
+        if (e.weapon === "npc") { this.npcDmgT = t; this.npcDmgBy = e.by ?? null }
+        else if (e.weapon !== "zone") {
           this.lastDamageT = t
           if (e.bearing != null) this.lastDamageBearing = e.bearing
           this.lastDamageBy = e.by ?? null
@@ -260,18 +261,24 @@ export class Brain {
       const myPower = myHp * (1 + (secW ? 0.4 : 0)) * (1 + 0.04 * Math.min(10, me.cubes ?? 0))
       const thPower = target.hp * (1 + (target.weapons.length > 1 ? 0.4 : 0)) * (1 + 0.04 * Math.min(10, target.cubes))
       const others = enemies.filter((e) => e !== target && t - e.seenT < 1 && hyp(e.pos[0] - pos[0], e.pos[1] - pos[1]) < 200).length
-      const favorable = myPower > thPower * (others ? 1.6 : 1.1) || target.hp < 300
-      const agg = this.opts.aggression ?? 0.5
-      if (hasLos && d < 240) {
-        if (favorable || late || (tSees && underFire && d < 80) || (agg > 0.7 && myPower > thPower * 0.8)) mode = "fight"
+      const ratio = myPower / Math.max(1, thPower) / (others ? 1.5 : 1)
+      const agg = this.opts.aggression ?? 0.2
+      const need = 1.3 - (agg - 0.5)
+      const favorable = ratio > need || target.hp < 250
+      const byTarget = underFire && this.lastDamageBy === target.id
+      if (late) {
+        if (hasLos && d < 240) { mode = "fight"; fightTarget = target }
+        else if (favorable && d < 150) { mode = "fight"; fightTarget = target }
+        else if (tSees) { mode = "evade"; fightTarget = target }
+      } else if (hasLos && d < 240) {
+        fightTarget = target
+        if (favorable) mode = "fight"
+        else if (tSees && d < 55) mode = "fight"
+        else if (byTarget && ratio > 0.85 && d < 120) mode = "fight"
         else mode = "evade"
-        fightTarget = target
       } else if (tSees && d < 200) {
-        mode = favorable || late ? "fight" : "evade"
         fightTarget = target
-      } else if (late && favorable && d < 150) {
-        mode = "fight"
-        fightTarget = target
+        mode = favorable ? "fight" : "evade"
       }
     }
     if (mode !== "travel") this.lastCombatT = t
@@ -344,7 +351,15 @@ export class Brain {
 
     // ---- crate / npc farming target (shoot) when calm
     let farmTarget: { pos: V3; vel: V3; id: number; h: number } | null = null
-    if ((this.opts.farm ?? true) && calm && !urgent && gun && hpFrac > 0.5 && t < 330) {
+    let npcFlee: Track | null = null
+    if (t - this.npcDmgT < 3 && this.npcDmgBy != null && mode === "travel") {
+      const n = this.npcs.get(this.npcDmgBy)
+      if (n && n.visible) {
+        if (hpFrac > 0.35 && gun) farmTarget = { pos: n.pos, vel: n.vel, id: n.id, h: 3.5 }
+        else npcFlee = n
+      }
+    }
+    if (!farmTarget && (this.opts.farm ?? true) && calm && !urgent && gun && hpFrac > 0.5 && t < 330) {
       let best: any = null, bd = Infinity
       for (const c of obs.crates ?? []) {
         const d = hyp(c.pos[0] - pos[0], c.pos[1] - pos[1])
@@ -382,7 +397,9 @@ export class Brain {
     let jump = false
     const walk = me.stats?.walk_speed ?? 11.7
 
-    if (mode === "evade" && fightTarget) {
+    if (npcFlee && mode === "travel") {
+      move = this.evadeMove(pos, npcFlee, nextC, nextR, zNow)
+    } else if (mode === "evade" && fightTarget) {
       move = this.evadeMove(pos, fightTarget, nextC, nextR, zNow)
       boost = me.energy > 30
     } else if (mode === "fight" && fightTarget) {
@@ -421,10 +438,11 @@ export class Brain {
         this.stuckRefT = t
       }
     } else { this.stuckRef = [...pos] as V3; this.stuckRefT = t }
+    this.jetOk = false
     if (t < this.unstickUntil) {
       move = [move[0] * 0.3 + this.unstickDir[0] * 0.7, move[1] * 0.3 + this.unstickDir[1] * 0.7]
       if (me.grounded && this.stuckT >= 2) jump = true
-      if (!me.grounded && me.energy > 10 && this.stuckT >= 2) boost = true
+      if (!me.grounded && me.energy > 10 && this.stuckT >= 2) { boost = true; this.jetOk = true }
     }
 
     // ---- aiming & firing
@@ -523,7 +541,7 @@ export class Brain {
     act.move = [move[0], move[1]]
     const ml = hyp(move[0], move[1])
     if (ml > 1) act.move = [move[0] / ml, move[1] / ml]
-    act.boost = boost && ml > 0.2 ? true : (!me.grounded && boost)
+    act.boost = me.grounded ? (boost && ml > 0.2) : (boost && this.jetOk)
     act.jump = jump
     act.aim = [wrap(aimYaw), clamp(aimPitch, -0.69, 1.29)]
     act.fire = fire
@@ -639,7 +657,8 @@ export class Brain {
         this.path = [goal]
       } else {
         const es = enemies.filter((e) => t - e.seenT < 5).map((e) => e.pos)
-        const cost = es.length
+        const ns = [...this.npcs.values()].map((n) => n.pos)
+        const cost = es.length || ns.length
           ? (g: number) => {
               const p = m.gPos(g)
               let c = 0
@@ -647,10 +666,14 @@ export class Brain {
                 const d = hyp(p[0] - e[0], p[1] - e[1])
                 if (d < 100) c += (100 - d) * 0.05
               }
+              for (const e of ns) {
+                const d = hyp(p[0] - e[0], p[1] - e[1])
+                if (d < 50) c += (50 - d) * 0.06
+              }
               return c
             }
           : undefined
-        this.path = m.path(pos[0], pos[1], goal[0], goal[1], 40000, cost) ?? [goal]
+        this.path = m.path(pos[0], pos[1], goal[0], goal[1], 25000, cost) ?? [goal]
       }
       this.pathGoal = [goal[0], goal[1]]
       this.pathT = t
@@ -722,6 +745,9 @@ export class Brain {
     if (this.evadeGoal) return this.navMove(pos, this.evadeGoal, [])
     return [-(e.pos[0] - pos[0]) / 100, -(e.pos[1] - pos[1]) / 100]
   }
+  jetOk = false
+  npcDmgT = -99
+  npcDmgBy: number | null = null
   evadeGoal: P2 | null = null
   evadeT = -99
 }

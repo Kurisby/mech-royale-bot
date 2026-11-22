@@ -12,6 +12,11 @@ run((hello: Hello) => {
     process.stderr.write(`map load from ${hello.map.dir} failed (${e}); using bundled copy\n`)
     map = new GameMap(MAP_FALLBACK)
   }
+  // warm up the JIT so the first real decisions stay fast
+  try {
+    for (let k = 0; k < 6; k++) map.path(-300 + k * 100, -200, 300 - k * 80, 250, 25000)
+    for (let k = 0; k < 2000; k++) map.los(-100, -100, 5, 100 + k * 0.01, 120, 6)
+  } catch {}
   const brain = new Brain(hello, map, { name: "survivor" })
   return {
     name: "kurisby-survivor",
