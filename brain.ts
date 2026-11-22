@@ -96,6 +96,8 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  kiteT?: number
+  kiteCubes?: number
   hardCover?: boolean
   upPrio?: string[]
   evade2?: boolean
@@ -219,6 +221,7 @@ export class Brain {
           this.dmgWindow.push({ t, a: e.amount })
         }
       } else if (e.type === "kill") {
+        this.nKills++
         const tr = this.tracks.get(e.target)
         if (tr) this.killSpots.push({ p: [tr.pos[0], tr.pos[1]], t })
       } else if (e.type === "take_failed") {
@@ -226,6 +229,7 @@ export class Brain {
       }
     }
     this.dmgWindow = this.dmgWindow.filter((d) => t - d.t < 3)
+    for (const c of obs.crates ?? []) if (c.pos[2] - this.map.surfAt(c.pos[0], c.pos[1]) < 2.5 && (this.badCrates.get(c.id) ?? 0) < 25) this.crateMem.set(c.id, [c.pos[0], c.pos[1]])
     for (const s of obs.sounds ?? []) this.heard.push({ t: t - (s.age ?? 0), bearing: s.bearing, dist: s.dist, kind: s.kind })
     this.heard = this.heard.filter((h) => t - h.t < 6)
 
@@ -382,6 +386,12 @@ export class Brain {
           if (hpFrac < (this.opts.evadeHp ?? 0.3) && hl.length >= 2 && b.hp > 400) mode = "evade"
           if ((this.opts.evade3 ?? false) && hl.length >= 3 && b.hp > 400) mode = "evade"
           if ((this.opts.evade2 ?? false) && hl.length >= 2 && b.hp > 500 && hpFrac < 0.95) mode = "evade"
+          // before the first kill only one (easy) hunter is on us: don't kill it yet, keep away and collect cubes
+          if ((this.opts.kiteT ?? 0) > 0 && this.nKills === 0 && t < this.opts.kiteT! && (me.cubes ?? 0) < (this.opts.kiteCubes ?? 10) && hl.length === 1 && hpFrac > 0.5) {
+            this.kiting = true
+            if (dist(b) < 110 || t - (this.hitBy.get(b.id) ?? -99) < 2) { mode = "evade"; holdFire = true }
+            else { mode = "travel"; fightTarget = null }
+          } else this.kiting = false
         } else {
           const nearHunter = [...this.tracks.values()].some((e) => this.hunterIds.has(e.id) && t - e.seenT < 6 && dist(e) < (this.opts.huntGap ?? 130))
           let b: Track | null = null, bs = Infinity
@@ -592,6 +602,38 @@ export class Brain {
         if (d < bd && d < 380 && zoneSafeFor(lp.p, 10)) { bd = d; best = lp.p }
       }
       if (best) { goal = best; goalWhy = "prowl" }
+    }
+    // before the first kill: roam the zone for crates and drones instead of waiting at home
+    const vacuum = (this.opts.kiteT ?? 0) > 0 && this.nKills === 0 && t < this.opts.kiteT! && (me.cubes ?? 0) < (this.opts.kiteCubes ?? 10)
+    if (vacuum && mode === "travel" && !urgent && (goalWhy === "home" || goalWhy === "prowl") && !npcFlee) {
+      if (t - this.visitT > 4) { this.visitT = t; this.visited.push([pos[0], pos[1]]); if (this.visited.length > 40) this.visited.shift() }
+      // crates we saw earlier and have not destroyed
+      let cb: P2 | null = null, cd = Infinity
+      for (const [id, c] of this.crateMem) {
+        const d = hyp(c[0] - pos[0], c[1] - pos[1])
+        if (d < 12 && !(obs.crates ?? []).some((x: any) => x.id === id)) { this.crateMem.delete(id); continue }
+        if (d < cd && zoneSafeFor(c, 5)) { cd = d; cb = c }
+      }
+      if (cb) { goal = cb; goalWhy = "crate" }
+      else {
+        if (!this.exploreGoal || t - this.exploreT > 18 || hyp(this.exploreGoal[0] - pos[0], this.exploreGoal[1] - pos[1]) < 12 || !zoneSafeFor(this.exploreGoal, 5)) {
+          let best: P2 | null = null, bv = -Infinity
+          for (let k = 0; k < 30; k++) {
+            const a = this.rng.next() * TAU, rr = Math.sqrt(this.rng.next()) * Math.max(20, nextR - 20)
+            const x = nextC[0] + Math.cos(a) * rr, y = nextC[1] + Math.sin(a) * rr
+            if (this.map.blocked[this.map.gIdx(x, y)] & 1) continue
+            const d = hyp(x - pos[0], y - pos[1])
+            if (d < 60 || d > 260) continue
+            let near = Infinity
+            for (const v of this.visited) near = Math.min(near, hyp(v[0] - x, v[1] - y))
+            let v = Math.min(near, 150) - d * 0.3
+            for (const e of this.tracks.values()) if (t - e.seenT < 10 && hyp(e.pos[0] - x, e.pos[1] - y) < 90) v -= 60
+            if (v > bv) { bv = v; best = [x, y] }
+          }
+          this.exploreGoal = best; this.exploreT = t
+        }
+        if (this.exploreGoal) { goal = this.exploreGoal; goalWhy = "explore" }
+      }
     }
     if (this.opts.hunt && mode === "travel" && !urgent && goalWhy === "home") {
       const loud = this.heard.filter((h) => (h.kind === "gun" || h.kind === "laser" || h.kind === "lightning" || h.kind === "mortar") && h.dist !== "far" && t - h.t < 4).sort((a, b) => b.t - a.t)[0]
@@ -1221,6 +1263,13 @@ export class Brain {
   }
 
   dodgeN = 0
+  visited: P2[] = []
+  visitT = -99
+  exploreGoal: P2 | null = null
+  exploreT = -99
+  crateMem = new Map<number, P2>()
+  nKills = 0
+  kiting = false
   // can a mech with its eye at (ex,ey,ez) see a point? With treeCover, canopy blocks beyond the 45 m proximity sensors
   vis(ex: number, ey: number, ez: number, x: number, y: number, z: number) {
     if ((this.opts.treeCover ?? false) && hyp(x - ex, y - ey) > 45) return this.map.visLos(ex, ey, ez, x, y, z)
