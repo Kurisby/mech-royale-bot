@@ -53,9 +53,6 @@ export interface BrainOpts {
   aggression?: number // 0..1
   farm?: boolean
   hunt?: boolean
-  focus?: boolean
-  chase?: boolean
-  roof?: boolean
   zoneFirst?: boolean
   jink?: boolean
   style?: string
@@ -64,8 +61,6 @@ export interface BrainOpts {
   duck?: boolean
   coverCheck?: boolean
   lootFar?: boolean
-  tactical?: boolean
-  precharge?: boolean
 }
 
 export class Brain {
@@ -256,16 +251,13 @@ export class Brain {
     for (const e of enemies) {
       const d = hyp(e.pos[0] - pos[0], e.pos[1] - pos[1])
       const hasLos = t - e.losT < 0.3
-      const focus = this.opts.focus ?? true
-      let s = -d * 0.02 - e.hp / (focus ? 200 : 400)
+      let s = -d * 0.02 - e.hp / 400
       if (hasLos) s += 3
       if (this.lastDamageBy === e.id && underFire) s += 2
       if (this.isAimingAt(e, pos)) s += 1
-      if (focus && e.id === this.lastTargetId && t - e.seenT < 1) s += 2.5
       if (d > 260) s -= 5
       if (s > tScore) { tScore = s; target = e }
     }
-    this.lastTargetId = target ? target.id : null
 
     // ---- decide mode
     const alive = obs.alive
@@ -317,9 +309,6 @@ export class Brain {
         fightTarget = target
         mode = favorable ? "fight" : "evade"
       }
-    }
-    if ((this.opts.chase ?? false) && target && mode !== "fight" && target.hp < 450 && hpFrac > 0.45 && t - target.seenT < 5 && hyp(target.pos[0] - pos[0], target.pos[1] - pos[1]) < 200) {
-      mode = "fight"; fightTarget = target; holdFire = false
     }
     if (mode === "evade" && fightTarget && (this.opts.coverCheck ?? false)) {
       // only run if there is cover close by; running in the open just eats laser shots
@@ -454,7 +443,6 @@ export class Brain {
     let move: P2 = [0, 0]
     let boost = false
     let jump = false
-    this.jetOk = false
     const walk = me.stats?.walk_speed ?? 11.7
 
     if (npcFlee && mode === "travel") {
@@ -464,11 +452,6 @@ export class Brain {
       boost = me.energy > 30
     } else if (mode === "fight" && fightTarget) {
       if (t - fightTarget.losT > 1.0) move = this.navMove(pos, [fightTarget.pos[0], fightTarget.pos[1]], [])
-      else if (this.opts.tactical) {
-        const gunReady = !!gun && (gun.ammo ?? 1) > 0 && (gun.reload ?? 0) <= 0.2
-        const secReady = !!secW && secW.kind === "laser" && ((this.opts.precharge ?? false) ? (secW.charge ?? 0) >= (secW.stats?.charge ?? 0.75) - 0.1 : (secW.cooldown ?? 0) < 0.5)
-        move = this.tacticalMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac, gunReady || secReady)
-      }
       else move = this.fightMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac)
     } else if (goal) {
       const gd = hyp(goal[0] - pos[0], goal[1] - pos[1])
@@ -480,52 +463,6 @@ export class Brain {
       if (urgent && me.energy > 25) boost = true
       if (!inZoneNow && me.energy > 5) boost = true
     }
-    // ---- rooftop hiding: climb onto a large roof inside the next circle and wait there
-    let roofCtl = false
-    const onRoof = me.grounded && pos[2] > this.map.surfAt(pos[0], pos[1]) + 2.5
-    if ((this.opts.roof ?? true) && (mode === "travel" || (onRoof && mode === "evade")) && (goalWhy === "home" || goalWhy === "farm" || onRoof) && !npcFlee) {
-      const rk = key
-      const roofOk = (r: any) => r && hyp(r.x - nextC[0], r.y - nextC[1]) < nextR - 8 && (this.badRoofs.get(r.id) ?? -99) < t - 60
-      if (this.roofKey !== rk || (this.roof && !roofOk(this.roof))) {
-        this.roofKey = rk
-        if (!roofOk(this.roof)) this.roof = this.pickRoof(pos, nextC, nextR)
-      }
-      const r = this.roof
-      if (r && roofOk(r) && !(urgent && hyp(r.ax - pos[0], r.ay - pos[1]) > 60)) {
-        roofCtl = true
-        const onIt = onRoof && Math.abs(pos[2] - r.T) < 1.5
-        if (onIt) {
-          this.climbT = -1
-          const d = hyp(r.x - pos[0], r.y - pos[1])
-          move = d > 3 ? [(r.x - pos[0]) / d, (r.y - pos[1]) / d] : [0, 0]
-          goalWhy = "roof"
-        } else {
-          const da = hyp(r.ax - pos[0], r.ay - pos[1])
-          if (da > 3.5 && this.climbT < 0) {
-            move = this.navMove(pos, [r.ax, r.ay], enemies)
-            goalWhy = "to-roof"
-          } else {
-            // at the wall: wait for energy, then jump and jet up while pushing toward the roof point
-            const need = Math.min(98, ((r.T - pos[2]) / 10) * 15 * 1.25 + 15)
-            const dx = r.x - pos[0], dy = r.y - pos[1], L = hyp(dx, dy) || 1
-            if (this.climbT < 0) {
-              if (me.energy >= need && me.grounded) { this.climbT = t; jump = true; move = [dx / L, dy / L] }
-              else { move = [0, 0]; goalWhy = "charge" }
-            } else {
-              move = [dx / L, dy / L]
-              if (!me.grounded) { boost = pos[2] < r.T + 1.5; this.jetOk = boost }
-              else if (pos[2] < r.T - 1.5) { jump = true }
-              goalWhy = "climb"
-              if (t - this.climbT > 10) { this.badRoofs.set(r.id, t); this.climbT = -1; this.roof = null }
-              if (me.grounded && t - this.climbT > 1.5 && pos[2] < r.T - 1.5 && me.energy < 10) this.climbT = -1
-            }
-          }
-        }
-      } else if (onRoof) {
-        goalWhy = "descend"
-      }
-    } else this.climbT = -1
-
     // zone first: never stay in a fight outside (or about to be outside) the zone
     if ((this.opts.zoneFirst ?? true) && (mode === "fight" || mode === "evade") && this.home) {
       const zd = hyp(pos[0] - zSoon.c[0], pos[1] - zSoon.c[1]) - zSoon.r
@@ -567,7 +504,7 @@ export class Brain {
     }
     // stuck handling
     const sp = hyp(me.vel[0], me.vel[1])
-    if (hyp(move[0], move[1]) > 0.3 && this.climbT < 0) {
+    if (hyp(move[0], move[1]) > 0.3) {
       if (t - this.stuckRefT > 1.2) {
         const moved = hyp(pos[0] - this.stuckRef[0], pos[1] - this.stuckRef[1])
         if (moved < 2.5 && t > 1) {
@@ -586,6 +523,7 @@ export class Brain {
         this.stuckRefT = t
       }
     } else { this.stuckRef = [...pos] as V3; this.stuckRefT = t }
+    this.jetOk = false
     if (t < this.unstickUntil) {
       move = [move[0] * 0.3 + this.unstickDir[0] * 0.7, move[1] * 0.3 + this.unstickDir[1] * 0.7]
       if (me.grounded && this.stuckT >= 2) jump = true
@@ -635,14 +573,7 @@ export class Brain {
               }
             }
           } else if ((secW.charge ?? 0) > 0) {
-            const full = secW.stats?.charge ?? 0.75
-            if ((secW.charge ?? 0) >= full - 0.05) { if (this.laserFullT < 0) this.laserFullT = t } else this.laserFullT = -1
-            // hold the charge for the next peek, but let go before it fires on its own
-            fire[sec] = !(this.laserFullT >= 0 && t - this.laserFullT > 1.6)
-            if ((this.opts.precharge ?? false)) secAim = this.leadAim(pos, muzzleZ, e.pos, e.vel, eh * 0.5, 1e9)
-          } else if ((this.opts.precharge ?? false) && secW.cooldown <= 0.05 && t - e.losT < 3 && d3 < rng) {
-            fire[sec] = true // pre-charge behind cover so the peek shot is instant
-            this.laserFullT = -1
+            fire[sec] = true // keep holding (auto fires after hold_s)
           }
         } else if (k === "lightning") {
           const rng = (secW.stats?.range ?? 45) * 0.95
@@ -789,7 +720,7 @@ export class Brain {
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * TAU
       let ok = true
-      for (let r = 6; r <= 80; r += 6) {
+      for (let r = 6; r <= 80; r += 4) {
         if (this.map.solid(x + Math.cos(a) * r, y + Math.sin(a) * r, z + 6)) { ok = false; break }
       }
       if (ok) open++
@@ -806,7 +737,7 @@ export class Brain {
     const dc = hyp(pos[0] - c[0], pos[1] - c[1])
     const ar = Math.max(0, Math.min(dc, r - margin))
     const anchor: P2 = dc > 1 ? [c[0] + ((pos[0] - c[0]) / dc) * ar, c[1] + ((pos[1] - c[1]) / dc) * ar] : [c[0], c[1]]
-    const N = 50
+    const N = 90
     for (let k = 0; k < N; k++) {
       let x: number, y: number
       if (edge) {
@@ -839,50 +770,6 @@ export class Brain {
     return best
   }
 
-  pickRoof(pos: V3, c: P2, r: number): any {
-    const m = this.map
-    const R = r - 12
-    if (R < 10) return null
-    let best: any = null, bv = Infinity
-    const step = Math.max(6, Math.min(10, R / 20))
-    for (let y = c[1] - R; y <= c[1] + R; y += step)
-      for (let x = c[0] - R; x <= c[0] + R; x += step) {
-        if (hyp(x - c[0], y - c[1]) > R) continue
-        const k = m.idx(x, y)
-        const rin = m.roofIn[k]
-        if (rin < 7) continue
-        const T = m.pTop[k], g = m.ground[k]
-        if (T - g < 5 || T - g > 42) continue
-        // approach: shortest outward march to open ground that never crosses roof higher than T
-        let ap: any = null
-        for (let a = 0; a < 16; a++) {
-          const ux = Math.cos((a * Math.PI) / 8), uy = Math.sin((a * Math.PI) / 8)
-          let ok = true
-          for (let d = 1; d < 90; d += 1) {
-            const px = x + ux * d, py = y + uy * d
-            const k2 = m.idx(px, py)
-            if (m.wall[k2] === 1) { if (m.pTop[k2] > T + 0.4) { ok = false; break } continue }
-            // first open cell: walk out until nav-free
-            let fx = px, fy = py, found = false
-            for (let e = 0; e < 8; e++) {
-              const g2 = m.gIdx(fx, fy)
-              if (!(m.blocked[g2] & 1)) { found = true; break }
-              fx += ux; fy += uy
-            }
-            if (!found || T - m.surfAt(fx, fy) > 45) { ok = false; break }
-            if (!ap || d < ap.d) ap = { d, ax: fx, ay: fy }
-            break
-          }
-          if (!ok) continue
-        }
-        if (!ap) continue
-        const dist = hyp(ap.ax - pos[0], ap.ay - pos[1])
-        const v = -Math.min(rin, 20) * 4 + dist * 0.2 + ap.d * 1.5 + Math.abs(T - g - 18) * 0.3
-        if (v < bv) { bv = v; best = { id: k, x, y, T, ax: ap.ax, ay: ap.ay, rin } }
-      }
-    return best
-  }
-
   navMove(pos: V3, goal: P2, enemies: Track[]): P2 {
     const t = this.t
     const m = this.map
@@ -910,7 +797,7 @@ export class Brain {
               return c
             }
           : undefined
-        this.path = m.path(pos[0], pos[1], goal[0], goal[1], 8000, cost) ?? [goal]
+        this.path = m.path(pos[0], pos[1], goal[0], goal[1], 25000, cost) ?? [goal]
       }
       this.pathGoal = [goal[0], goal[1]]
       this.pathT = t
@@ -955,71 +842,6 @@ export class Brain {
     return [mx, my]
   }
 
-  tacGoal: P2 | null = null
-  tacT = -99
-  tacticalMove(pos: V3, e: Track, secKind: string | undefined, nextC: P2, nextR: number, zNow: { c: P2; r: number }, hpFrac: number, ready: boolean): P2 {
-    // fight from a spot where only the target can see us; hide while reloading / low
-    const t = this.t
-    const m = this.map
-    let pref = 90
-    if (secKind === "lightning") pref = 25
-    else if (secKind === "laser") pref = 110
-    else if (secKind === "mortar") pref = 80
-    if (e.weapons.includes("lightning") && secKind !== "lightning") pref = Math.max(pref, 70)
-    const wantShoot = ready && (hpFrac > 0.3 || e.hp < 450)
-    const ez = e.pos[2] + 7 * (1 + 0.05 * e.cubes)
-    if (!this.tacGoal || t - this.tacT > 0.5 || (this.tacWant !== wantShoot)) {
-      this.tacT = t
-      this.tacWant = wantShoot
-      const others = [...this.tracks.values()].filter((o) => o !== e && t - o.seenT < 5 && hyp(o.pos[0] - pos[0], o.pos[1] - pos[1]) < 230)
-      let best: P2 = [pos[0], pos[1]], bv = Infinity
-      for (let k = 0; k <= 24; k++) {
-        let x = pos[0], y = pos[1], r = 0
-        if (k > 0) {
-          const a = this.rng.next() * TAU
-          r = 3 + this.rng.next() * 12
-          x += Math.cos(a) * r; y += Math.sin(a) * r
-        }
-        if (k > 0) {
-          if (m.blocked[m.gIdx(x, y)] & 3) continue
-          if (!m.clearLine(pos[0], pos[1], x, y)) continue
-        }
-        if (hyp(x - zNow.c[0], y - zNow.c[1]) > zNow.r - 4) continue
-        const z = m.surfAt(x, y) + 4.5
-        const tl = m.los(e.pos[0], e.pos[1], ez, x, y, z)
-        let nO = 0
-        for (const o of others) if (m.los(o.pos[0], o.pos[1], o.pos[2] + 7, x, y, z)) nO++
-        const de = hyp(x - e.pos[0], y - e.pos[1])
-        let v = r * 0.4 + Math.abs(de - pref) * 0.2 + nO * 70
-        if (wantShoot) v += tl ? 0 : 30
-        else v += tl ? 35 : 0
-        if (m.wallDistAt(x, y) < 6) v -= 5
-        if (hyp(x - nextC[0], y - nextC[1]) > nextR) v += 8
-        if (this.tacGoal && hyp(x - this.tacGoal[0], y - this.tacGoal[1]) < 3) v -= 6
-        if (v < bv) { bv = v; best = [x, y] }
-      }
-      this.tacGoal = best
-    }
-    const g = this.tacGoal!
-    const dx = e.pos[0] - pos[0], dy = e.pos[1] - pos[1]
-    const d = hyp(dx, dy) || 1
-    const ux = dx / d, uy = dy / d
-    if (t > this.jinkT) {
-      this.jinkT = t + 0.3 + this.rng.next() * 0.6
-      this.jinkDir = this.rng.next() < 0.5 ? -1 : 1
-    }
-    const px = -uy * this.jinkDir, py = ux * this.jinkDir
-    const gx = g[0] - pos[0], gy = g[1] - pos[1]
-    const gd = hyp(gx, gy)
-    let mx: number, my: number
-    if (gd > 2.5) { mx = gx / gd + px * 0.4; my = gy / gd + py * 0.4 }
-    else { mx = px * 0.8 + gx * 0.3; my = py * 0.8 + gy * 0.3 }
-    if (m.wallDistAt(pos[0] + mx * 4, pos[1] + my * 4) < 3 && gd <= 2.5) { this.jinkDir *= -1; mx = -px * 0.8 + gx * 0.3; my = -py * 0.8 + gy * 0.3 }
-    return [mx, my]
-  }
-  tacWant = true
-  laserFullT = -1
-
   evadeMove(pos: V3, e: Track, nextC: P2, nextR: number, zNow: { c: P2; r: number }): P2 {
     // find a nearby point that breaks line of sight from the enemy, inside the zone, away from it
     const t = this.t
@@ -1052,11 +874,6 @@ export class Brain {
   npcDmgT = -99
   npcDmgBy: number | null = null
   evadeHidden = true
-  lastTargetId: number | null = null
-  roof: any = null
-  roofKey = ""
-  climbT = -1
-  badRoofs = new Map<number, number>()
   hitBy = new Map<number, number>()
   badPts: { x: number; y: number; t: number }[] = []
   lootId: number | null = null

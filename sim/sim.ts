@@ -32,8 +32,6 @@ interface Proj { id: number; kind: string; owner: number; pos: V3; vel: V3; dist
 interface Npc { id: number; pos: V3; vel: V3; home: [number, number]; hp: number; target: number | null; cd: number; wander: [number, number]; wt: number; aim: number; alive: boolean }
 
 export class Sim {
-  house = false
-  houseEvery = 60
   static maxMs = 0
   static slow = 0
   static calls = 0
@@ -213,12 +211,6 @@ export class Sim {
     const vis: any[] = []
     for (const o of this.mechs) {
       if (o === m || !o.alive) continue
-      const hc = m.ctrl as any
-      if (this.house && hc.house) {
-        // house bots never see each other; inactive ones ignore the player; active ones always know where the player is
-        if ((o.ctrl as any).house || !hc.active) continue
-        m.memory.set(o.id, this.t)
-      }
       const oh = o.stats.height * this.scale(o)
       if ((m.ctrl as any).omni || this.canSee(m, o.pos, oh)) m.memory.set(o.id, this.t)
       const last = m.memory.get(o.id)
@@ -260,7 +252,6 @@ export class Sim {
 
   damage(target: Mech, amount: number, weapon: string, by: Mech | null, from: V3 | null, byId: number | null = null) {
     if (!target.alive) return 0
-    if (this.house && by && by !== target && (by.ctrl as any).house && (target.ctrl as any).house) return 0
     let a = amount
     let rear = false
     if (by && from) {
@@ -270,8 +261,6 @@ export class Sim {
     if (weapon !== "zone") a *= 1 - Math.min(0.9, target.stats.armor)
     if (by && by.id === target.id) a *= this.cfg.mech.self_damage_mult
     target.hp -= a
-    ;(target as any).taken = ((target as any).taken ?? {}); (target as any).taken[weapon] = ((target as any).taken[weapon] ?? 0) + a
-    if (by) { (by as any).dealt = ((by as any).dealt ?? {}); (by as any).dealt[weapon] = ((by as any).dealt[weapon] ?? 0) + a }
     ;(target as any).lastW = weapon
     target.lastDmgT = this.t
     const bearing = from ? Math.atan2(from[1] - target.pos[1], from[0] - target.pos[0]) : null
@@ -675,13 +664,6 @@ export class Sim {
     const dt = 1 / this.cfg.match.tick_hz
     const decide = this.tick % this.cfg.match.decide_every === 0
     const alive = this.mechs.filter((m) => m.alive)
-    if (decide && this.house) {
-      // escalation: weakest first, one more hunter per player kill and per minute
-      const kills = this.mechs.filter((m) => !(m.ctrl as any).house).reduce((s, m) => s + m.kills, 0)
-      const n = 1 + kills + Math.floor(this.t / (this.houseEvery ?? 60))
-      const hs = alive.filter((m) => (m.ctrl as any).house).sort((a, b) => (a.ctrl as any).tier - (b.ctrl as any).tier || a.id - b.id)
-      hs.forEach((m, i) => ((m.ctrl as any).active = i < n))
-    }
     if (decide) {
       for (const m of alive) {
         const obs = this.buildObs(m)
@@ -759,7 +741,7 @@ export class Sim {
       for (const id of ids) this.mechs[id].place = p
       p += ids.length
     }
-    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT, cause: m.alive ? 'alive' : (m as any).lastW, dealt: (m as any).dealt ?? {}, taken: (m as any).taken ?? {} }))
+    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT, cause: m.alive ? 'alive' : (m as any).lastW }))
   }
 }
 
