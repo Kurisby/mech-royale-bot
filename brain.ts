@@ -114,6 +114,11 @@ export interface BrainOpts {
   zapSave?: boolean
   laserFirst?: number
   gunThru?: boolean
+  pickMem?: boolean
+  fightGrab?: number
+  armFirst?: boolean
+  spawnScan?: boolean
+  gunClose?: number
   cookPrio?: number
   laserPref?: number
   dropPrio?: number
@@ -155,6 +160,7 @@ export class Brain {
   heard: { t: number; bearing: number; dist: string; kind: string }[] = []
   scanBase = 0
   failedTakes = new Map<number, number>()
+  pickMemo = new Map<number, { id: number; kind: string; pos: V3 }>()
   badCrates = new Map<number, number>()
   crateHp = new Map<number, { hp: number; t: number }>()
   opts: BrainOpts
@@ -234,10 +240,23 @@ export class Brain {
         if (tr) this.killSpots.push({ p: [tr.pos[0], tr.pos[1]], t })
       } else if (e.type === "take_failed") {
         this.failedTakes.set(e.id, t)
+        if (e.reason === "gone" || e.reason === "have") this.pickMemo.delete(e.id)
+      } else if (e.type === "took") {
+        this.pickMemo.delete(e.id)
       }
     }
     this.dmgWindow = this.dmgWindow.filter((d) => t - d.t < 3)
     for (const c of obs.crates ?? []) if (c.pos[2] - this.map.surfAt(c.pos[0], c.pos[1]) < 2.5 && (this.badCrates.get(c.id) ?? 0) < 25) this.crateMem.set(c.id, [c.pos[0], c.pos[1]])
+    if (this.opts.pickMem ?? false) {
+      // weapons on the ground never despawn: remember the ones we saw, forget one once we look at its spot and it is gone
+      const seenNow = new Set<number>()
+      for (const p of obs.pickups ?? []) { seenNow.add(p.id); this.pickMemo.set(p.id, { id: p.id, kind: p.kind, pos: p.pos }) }
+      for (const [id, p] of this.pickMemo) {
+        if (seenNow.has(id)) continue
+        const d = hyp(p.pos[0] - pos[0], p.pos[1] - pos[1])
+        if (d < 40 && this.map.los(pos[0], pos[1], eyeZ, p.pos[0], p.pos[1], p.pos[2] + 1)) this.pickMemo.delete(id)
+      }
+    }
     for (const s of obs.sounds ?? []) this.heard.push({ t: t - (s.age ?? 0), bearing: s.bearing, dist: s.dist, kind: s.kind })
     this.heard = this.heard.filter((h) => t - h.t < 6)
 
@@ -420,7 +439,11 @@ export class Brain {
           }
           const ffT = this.opts.farmFirstT ?? 0
           const farming = t < ffT && (me.cubes ?? 0) < (this.opts.farmFirstCubes ?? 10)
-          if (b && !nearHunter && !farming && (hpFrac > (this.opts.passiveHp ?? 0.45) || b.hp < 300)) { fightTarget = b; mode = "fight" }
+          let armWait = false
+          if ((this.opts.armFirst ?? false) && !secW && b && b.hp > 300) {
+            for (const p of this.pickMemo.values()) if (hyp(p.pos[0] - pos[0], p.pos[1] - pos[1]) < 140 && p.pos[2] - this.map.surfAt(p.pos[0], p.pos[1]) < 2) { armWait = true; break }
+          }
+          if (b && !nearHunter && !farming && !armWait && (hpFrac > (this.opts.passiveHp ?? 0.45) || b.hp < 300)) { fightTarget = b; mode = "fight" }
         }
         this.squadTid = fightTarget ? fightTarget.id : null
         this.fightPassive = !!fightTarget && fightTarget.id >= 0 && !this.hunterIds.has(fightTarget.id)
@@ -487,7 +510,7 @@ export class Brain {
     if (!urgent && mode !== "fight") {
       // weapon pickups
       let bestP: any = null, bpv = -Infinity
-      for (const p of obs.pickups ?? []) {
+      for (const p of ((this.opts.pickMem ?? false) ? this.pickMemo.values() : (obs.pickups ?? []))) {
         if ((this.failedTakes.get(p.id) ?? -99) > t - 3) continue
         const WP = this.opts.wprio ?? WEAPON_PRIO
         const pr = WP[p.kind] ?? 0
@@ -727,6 +750,24 @@ export class Brain {
           if (d < gd && Math.abs(c.pos[2] - pos[2]) < 3.5 && this.map.clearLine(pos[0], pos[1], c.pos[0], c.pos[1])) { gd = d; gc = c }
         }
         if (gc) { const L = gd || 1; move = [((gc.pos[0] - pos[0]) / L) * 0.85 + move[0] * 0.35, ((gc.pos[1] - pos[1]) / L) * 0.85 + move[1] * 0.35] }
+      }
+      if ((this.opts.fightGrab ?? 0) > 0 && !urgent) {
+        // a better weapon lying close by is worth a few steps even mid-fight (no secondary: any; else only an upgrade)
+        const WP = this.opts.wprio ?? WEAPON_PRIO
+        const cur = secW ? WP[secW.kind] ?? 0 : -1
+        const charging = secW?.kind === "laser" && (secW.charge ?? 0) > 0
+        let gp: any = null, gd = secW ? this.opts.fightGrab! * 0.5 : this.opts.fightGrab!
+        if (!charging) for (const p of ((this.opts.pickMem ?? false) ? this.pickMemo.values() : (obs.pickups ?? []))) {
+          if ((WP[p.kind] ?? 0) <= cur || W.some((w: any) => w && w.kind === p.kind)) continue
+          if ((this.failedTakes.get(p.id) ?? -99) > t - 3) continue
+          const d = hyp(p.pos[0] - pos[0], p.pos[1] - pos[1])
+          if (d < gd && Math.abs(p.pos[2] - pos[2]) < 3.5 && this.map.clearLine(pos[0], pos[1], p.pos[0], p.pos[1])) { gd = d; gp = p }
+        }
+        if (gp) {
+          const L = gd || 1
+          move = [((gp.pos[0] - pos[0]) / L) * 0.9 + move[0] * 0.3, ((gp.pos[1] - pos[1]) / L) * 0.9 + move[1] * 0.3]
+          if (gd < (this.cfg.loot?.pickup_radius ?? 4) - 0.3) { takeId = gp.id; dropSlot = secW ? sec : null }
+        }
       }
       const zap = secW?.kind === "lightning" && (this.opts.zapSave ?? false) && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) < 55
       if (zap) this.boostRest = true // inside arc range: every point of energy goes into the lightning
@@ -982,7 +1023,8 @@ export class Brain {
       aimPitch = 0
       const recentTrack = [...this.tracks.values()].filter((e) => t - e.seenT < 10).sort((a, b) => b.seenT - a.seenT)[0]
       const recentLoud = this.heard.filter((h) => h.kind !== "step" && h.kind !== "crate" && h.kind !== "npc_gun" && t - h.t < 3).sort((a, b) => b.t - a.t)[0]
-      if (t - this.lastDamageT < 3) aimYaw = this.lastDamageBearing
+      if ((this.opts.spawnScan ?? false) && t < 1.75 && t - this.lastDamageT > 3) aimYaw = me.aim[0] + 1.2 // one full turn at spawn: see every weapon, crate and bot within 200 m
+      else if (t - this.lastDamageT < 3) aimYaw = this.lastDamageBearing
       else if (recentTrack && t - recentTrack.seenT < 6) aimYaw = Math.atan2(recentTrack.pos[1] - pos[1], recentTrack.pos[0] - pos[0])
       else if (recentLoud && recentLoud.dist !== "far") aimYaw = recentLoud.bearing
       else if ((this.opts.faceThreat ?? false) && this.lastHunterDir(pos, 25) != null) {
@@ -1284,6 +1326,8 @@ export class Brain {
     else if (secKind === "laser") pref = Math.max(pref, this.opts.laserPref ?? 120)
     else if (secKind === "mortar") pref = 90
     if (e.weapons.includes("lightning") && secKind !== "lightning") pref = Math.max(pref, 80)
+    // gun only against a laser: at range its beam always lands and our bullets get dodged, so close to where bullets can't miss
+    else if ((this.opts.gunClose ?? 0) > 0 && (secKind === undefined || secKind === "mortar") && e.weapons.includes("laser")) pref = this.opts.gunClose!
     if (t > this.jinkT) {
       this.jinkT = t + 0.3 + this.rng.next() * 0.6
       this.jinkDir = this.rng.next() < 0.5 ? -1 : 1

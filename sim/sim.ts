@@ -732,6 +732,12 @@ export class Sim {
       this.stepMech(m, dt)
       if (m.alive && m.ctrl.name === "MINE") {
         const lw = m.weapons.find((w) => w && w.kind === "laser")
+        const anyS = m.weapons.find((w) => w && w.kind !== "gun")
+        if (anyS && (m as any).secT == null) (m as any).secT = this.t
+        if (lw && (m as any).lasT == null) (m as any).lasT = this.t
+        if (m.kills > 0 && (m as any).k1T == null) { (m as any).k1T = this.t; (m as any).k1C = m.cubes }
+        if (m.kills > 2 && (m as any).k3T == null) { (m as any).k3T = this.t; (m as any).k3C = m.cubes }
+        if (m.hp < m.maxHp - 1 && (m as any).d1T == null && ((m as any).taken?.gun || (m as any).taken?.laser || (m as any).taken?.lightning || (m as any).taken?.mortar)) (m as any).d1T = this.t
         const st = ((m as any).lz ??= { shots: 0, hitMech: 0, full: 0 })
         if (lw) { st.hasT = (st.hasT ?? 0) + dt; if ((lw.charge ?? 0) > 0) st.chgT = (st.chgT ?? 0) + dt; if ((lw.cooldown ?? 0) <= 0 && !((lw.charge ?? 0) > 0)) st.idleT = (st.idleT ?? 0) + dt }
       }
@@ -796,7 +802,7 @@ export class Sim {
       for (const id of ids) this.mechs[id].place = p
       p += ids.length
     }
-    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT, cause: m.alive ? 'alive' : (m as any).lastW, dealt: (m as any).dealt ?? {}, taken: (m as any).taken ?? {}, nAtk: (m as any).nAtk ?? 0, rearDmg: (m as any).rearDmg ?? 0, byDist: (m as any).byDist ?? {}, lz: (m as any).lz ?? { shots: 0, hitMech: 0, full: 0 } }))
+    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT, cause: m.alive ? 'alive' : (m as any).lastW, dealt: (m as any).dealt ?? {}, taken: (m as any).taken ?? {}, nAtk: (m as any).nAtk ?? 0, rearDmg: (m as any).rearDmg ?? 0, byDist: (m as any).byDist ?? {}, lz: (m as any).lz ?? { shots: 0, hitMech: 0, full: 0 }, secT: (m as any).secT ?? null, lasT: (m as any).lasT ?? null, k1T: (m as any).k1T ?? null, k1C: (m as any).k1C ?? null, k3T: (m as any).k3T ?? null, k3C: (m as any).k3C ?? null, d1T: (m as any).d1T ?? null }))
   }
 }
 
