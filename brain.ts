@@ -114,6 +114,7 @@ export interface BrainOpts {
   zapSave?: boolean
   laserFirst?: number
   gunThru?: boolean
+  zapRange?: number
   pickMem?: boolean
   fightGrab?: number
   armFirst?: boolean
@@ -1322,7 +1323,7 @@ export class Brain {
     const ux = dx / d, uy = dy / d
     // preferred range
     let pref = this.opts.prefRange ?? 110
-    if (secKind === "lightning") pref = 25
+    if (secKind === "lightning") pref = this.opts.zapRange ?? 25
     else if (secKind === "laser") pref = Math.max(pref, this.opts.laserPref ?? 120)
     else if (secKind === "mortar") pref = 90
     if (e.weapons.includes("lightning") && secKind !== "lightning") pref = Math.max(pref, 80)
