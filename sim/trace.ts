@@ -20,7 +20,7 @@ while (sim.t < 480 && sim.mechs.filter((m) => m.alive).length > 1 && me.alive) {
   sim.step()
   if (sim.tick % 20 === 0) {
     const z = sim.zoneNow()
-    console.log(`t=${sim.t.toFixed(0)} pos=${me.pos.map((v) => v.toFixed(0))} hp=${me.hp.toFixed(0)} en=${me.energy.toFixed(0)} w=${me.weapons.map((w) => w?.kind)} c=${me.cubes} ${brain.label} zd=${(Math.hypot(me.pos[0]-z.c[0], me.pos[1]-z.c[1]) - z.r).toFixed(0)} home=${brain.home?.map((v:number)=>v.toFixed(0))} alive=${sim.mechs.filter(m=>m.alive).length}`)
+    console.log(`t=${sim.t.toFixed(0)} gr=${me.grounded?1:0} pos=${me.pos.map((v) => v.toFixed(0))} hp=${me.hp.toFixed(0)} en=${me.energy.toFixed(0)} w=${me.weapons.map((w) => w?.kind)} c=${me.cubes} ${brain.label} zd=${(Math.hypot(me.pos[0]-z.c[0], me.pos[1]-z.c[1]) - z.r).toFixed(0)} home=${brain.home?.map((v:number)=>v.toFixed(0))} alive=${sim.mechs.filter(m=>m.alive).length}`)
   }
 }
 console.log("dead", !me.alive, (me as any).lastW, sim.t)

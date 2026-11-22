@@ -23,6 +23,7 @@ export function make(kind: string, h: any, m: GameMap): any {
   if (kind === "pro3") { const b: any = new BrainPro(h, m, { aggression: 1.0, hunt: true, lootFar: true, heal: true }); return b }
   if (kind === "survfarm") return new BrainS(h, m, { style: "stealth", farm: true })
   if (kind === "sfarm") return new Brain(h, m, { style: "stealth", farm: true })
+  if (kind === "noroof") return new Brain(h, m, { roof: false })
   if (kind === "nocover") return new Brain(h, m, { coverCheck: false })
   if (kind === "noloot") return new Brain(h, m, { lootFar: false })
   if (kind === "base2") return new Brain(h, m, { coverCheck: false, lootFar: false })

@@ -15,6 +15,7 @@ export class GameMap {
   wall: Uint8Array // 1 = vertical obstacle for a ground-level mech
   wallDist: Float32Array // distance (m) to nearest hard wall cell
   cliffDist: Float32Array
+  roofIn: Float32Array
   // nav grid (2 m)
   G = 2
   gnx: number
@@ -110,6 +111,15 @@ export class GameMap {
     const d = dt((k) => this.wall[k] === 1)
     const dc = dt((k) => this.wall[k] === 2)
     this.wallDist = d
+    // flat-roof interior distance: distance to the nearest edge of a building roof section
+    this.roofIn = dt((k) => {
+      if (this.wall[k] !== 1 || !(this.pTop[k] - this.ground[k] >= 4) || this.pBase[k] > this.ground[k] + 1.5) return true
+      const T = this.pTop[k]
+      const i = k % nx, j = (k / nx) | 0
+      if (i < 1 || j < 1 || i >= nx - 1 || j >= ny - 1) return true
+      for (const k2 of [k - 1, k + 1, k - nx, k + nx]) if (this.wall[k2] !== 1 || Math.abs(this.pTop[k2] - T) > 1.0) return true
+      return false
+    })
     this.cliffDist = dc
     // nav grid: bit 1 = hard wall nearby, bit 2 = cliff nearby (passable downhill)
     this.gnx = Math.floor(nx / this.G)
