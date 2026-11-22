@@ -96,6 +96,8 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  finish?: number
+  evade1?: number
   roam?: boolean
   cubeCap?: number
   kiteT?: number
@@ -384,10 +386,15 @@ export class Brain {
             const sc = dist(e) * 2 + e.hp + (e.id === this.squadTid ? -300 : 0) + (shooting ? -500 : 0) + ((this.opts.laserFirst ?? 0) && e.weapons.includes("laser") ? -this.opts.laserFirst! : 0)
             if (sc < bs) { bs = sc; b = e }
           }
+          // an idle bot we already brought low is a point and cubes: finish it before turning to the hunter
+          const fin = (this.opts.finish ?? 0) > 0 && this.squadTid != null && !this.hunterIds.has(this.squadTid) ? enemies.find((e) => e.id === this.squadTid) : undefined
+          if (fin && fin.hp < this.opts.finish! && t - fin.losT < 0.6 && dist(fin) < 90 && hpFrac > 0.4) b = fin
           fightTarget = b; mode = "fight"
           if (hpFrac < (this.opts.evadeHp ?? 0.3) && hl.length >= 2 && b.hp > 400) mode = "evade"
           if ((this.opts.evade3 ?? false) && hl.length >= 3 && b.hp > 400) mode = "evade"
           if ((this.opts.evade2 ?? false) && hl.length >= 2 && b.hp > 500 && hpFrac < 0.95) mode = "evade"
+          // losing a duel badly: break away and heal instead of trading to the death
+          if ((this.opts.evade1 ?? 0) > 0 && hl.length === 1 && hpFrac < this.opts.evade1! && b.hp > me.hp * 1.4) mode = "evade"
           // before the first kill only one (easy) hunter is on us: don't kill it yet, keep away and collect cubes
           if ((this.opts.kiteT ?? 0) > 0 && this.nKills === 0 && t < this.opts.kiteT! && (me.cubes ?? 0) < (this.opts.kiteCubes ?? 10) && hl.length === 1 && hpFrac > 0.5) {
             this.kiting = true
