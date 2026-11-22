@@ -4,7 +4,6 @@ import { Brain as BrainPro } from "./brain_pro.ts"
 import { Brain as BrainS } from "./brain_s.ts"
 import type { GameMap } from "../map.ts"
 import { Idle, Example } from "./opponents.ts"
-import { ZoneBot } from "../zonebot.ts"
 export function make(kind: string, h: any, m: GameMap): any {
   if (kind === "hunter") return new BrainV1(h, m, { aggression: 0.9 })
   if (kind === "v1") return new BrainV1(h, m, {})
@@ -24,8 +23,6 @@ export function make(kind: string, h: any, m: GameMap): any {
   if (kind === "pro3") { const b: any = new BrainPro(h, m, { aggression: 1.0, hunt: true, lootFar: true, heal: true }); return b }
   if (kind === "survfarm") return new BrainS(h, m, { style: "stealth", farm: true })
   if (kind === "sfarm") return new Brain(h, m, { style: "stealth", farm: true })
-  if (kind === "noroof") return new Brain(h, m, { roof: false })
-  if (kind === "zone") return new ZoneBot(h, m)
   if (kind === "nocover") return new Brain(h, m, { coverCheck: false })
   if (kind === "noloot") return new Brain(h, m, { lootFar: false })
   if (kind === "base2") return new Brain(h, m, { coverCheck: false, lootFar: false })
