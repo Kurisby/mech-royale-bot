@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  cubeCap?: number
   kiteT?: number
   kiteCubes?: number
   hardCover?: boolean
@@ -503,14 +504,16 @@ export class Brain {
       } else {
         // cubes on the ground
         let bc: any = null, bcd = Infinity
+        const capped = (me.cubes ?? 0) >= (this.opts.cubeCap ?? 999) // past the stat cap a cube only makes us a bigger target
         for (const c of obs.cubes ?? []) {
+          if (capped) break
           const d = hyp(c.pos[0] - pos[0], c.pos[1] - pos[1])
           if (Math.abs(c.pos[2] - pos[2]) > 3.5) continue
           if (c.pos[2] - this.map.surfAt(c.pos[0], c.pos[1]) > 2) continue
           if (d < bcd && d < (calm ? (fh ? 120 : 80) : 30) && zoneSafeFor([c.pos[0], c.pos[1]], 3)) { bcd = d; bc = c }
         }
         if (bc) { goal = [bc.pos[0], bc.pos[1]]; goalWhy = "cube" }
-        else if ((this.opts.killLoot ?? false) && calm && hpFrac > 0.4) {
+        else if ((this.opts.killLoot ?? false) && calm && hpFrac > 0.4 && !capped) {
           // walk over to where we killed something: its cubes (and weapon) are lying there
           this.killSpots = this.killSpots.filter((k) => t - k.t < 50 && hyp(k.p[0] - pos[0], k.p[1] - pos[1]) > 6)
           const ks = this.killSpots.filter((k) => zoneSafeFor(k.p, 3)).sort((a, b) => hyp(a.p[0] - pos[0], a.p[1] - pos[1]) - hyp(b.p[0] - pos[0], b.p[1] - pos[1]))[0]
@@ -537,6 +540,7 @@ export class Brain {
       for (const dr of obs.drops) {
         const d = hyp(dr.pos[0] - pos[0], dr.pos[1] - pos[1])
         if (d > this.opts.dropPrio!) continue
+        if ((me.cubes ?? 0) >= (this.opts.cubeCap ?? 999) && hpFrac > 0.6) continue
         if (dr.lands_in > d / 15 + 5) continue
         if (dr.holder != null && dr.holder !== this.me) continue
         const contested = [...this.tracks.values()].some((e) => this.hunterIds.has(e.id) && t - e.seenT < 4 && hyp(e.pos[0] - dr.pos[0], e.pos[1] - dr.pos[1]) < 60)
