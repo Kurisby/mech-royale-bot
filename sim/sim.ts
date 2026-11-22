@@ -35,6 +35,7 @@ export class Sim {
   house = false
   houseEvery = 60
   houseLate = 1e9
+  kdiv = 1
   retaliateS = 0
   omniHouse = true
   squadCache = new Map<number, [number, boolean]>()
@@ -698,7 +699,7 @@ export class Sim {
     if (decide && this.house) {
       // escalation: weakest first, one more hunter per player kill and per minute
       const kills = this.mechs.filter((m) => !(m.ctrl as any).house).reduce((s, m) => s + m.kills, 0)
-      let n = 1 + kills + Math.floor(this.t / (this.houseEvery ?? 60))
+      let n = 1 + Math.floor(kills / this.kdiv) + Math.floor(this.t / (this.houseEvery ?? 60))
       if (this.t >= this.houseLate) n = 99
       const hs = alive.filter((m) => (m.ctrl as any).house).sort((a, b) => (a.ctrl as any).tier - (b.ctrl as any).tier || a.id - b.id)
       hs.forEach((m, i) => ((m.ctrl as any).active = i < n))

@@ -7,8 +7,9 @@ const PROFILES: Record<string, any> = {
   survivor: {},
   fighter: { stealth: false, style: "x", roof: false, aggression: 1.0, chase: true },
   squad: { style: "squad", roof: false, farmHard: true, huntGap: 80 },
+  prowler: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true },
 }
-const PROFILE = "squad"
+const PROFILE = "prowler"
 const MAP_FALLBACK = new URL("./arena", import.meta.url).pathname
 
 run((hello: Hello) => {

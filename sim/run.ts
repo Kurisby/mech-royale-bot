@@ -24,7 +24,7 @@ for (let s = seed0; s < seed0 + n; s++) {
   }
   const t0 = performance.now()
   const sim = new Sim(map, cfg, s * 1000 + 17, facs)
-  if (field === "house") { sim.house = true; if (args.every) sim.houseEvery = +args.every; if (args.late) sim.houseLate = +args.late; if (args.ret) sim.retaliateS = +args.ret; if (args.omni) sim.omniHouse = args.omni === "1" }
+  if (field === "house") { sim.house = true; if (args.every) sim.houseEvery = +args.every; if (args.late) sim.houseLate = +args.late; if (args.ret) sim.retaliateS = +args.ret; if (args.kdiv) sim.kdiv = +args.kdiv; if (args.omni) sim.omniHouse = args.omni === "1" }
   const r = sim.run()
   const ms = performance.now() - t0
   for (const x of r) res.push({ seed: s, ...x })

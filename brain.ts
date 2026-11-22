@@ -68,6 +68,13 @@ export interface BrainOpts {
   precharge?: boolean
   farmHard?: boolean
   huntGap?: number
+  rearBonus?: number
+  stillPassive?: boolean
+  prowl?: boolean
+  prefRange?: number
+  fightBoost?: boolean
+  wprio?: Record<string, number>
+  gunDisc?: boolean
 }
 
 export class Brain {
@@ -222,7 +229,9 @@ export class Brain {
       const acc = (this.huntEv.get(e.id) ?? 0) * 0.995 + ev
       this.huntEv.set(e.id, acc)
       if (acc > 1.2) this.hunterIds.add(e.id)
+      if (!this.hunterIds.has(e.id)) this.passiveSeen.set(e.id, { p: [e.pos[0], e.pos[1]], t })
     }
+    for (const id of this.passiveSeen.keys()) if (this.hunterIds.has(id)) this.passiveSeen.delete(id)
 
     // ---- zone
     const zone = obs.zone
@@ -317,12 +326,15 @@ export class Brain {
             if (this.hunterIds.has(e.id) || t - e.losT > 0.6 || t - e.firstT < 1.5) continue
             const de = dist(e)
             if (de > 200) continue
-            const sc = de * 2 + e.hp + (e.id === this.squadTid ? -400 : 0)
+            const yawUs = Math.atan2(pos[1] - e.pos[1], pos[0] - e.pos[0])
+            const behind = Math.abs(wrap(yawUs - e.aim[0])) > 1.25 && de > 50
+            const sc = de * 2 + e.hp + (e.id === this.squadTid ? -400 : 0) + (behind ? -(this.opts.rearBonus ?? 0) : 0)
             if (sc < bs) { bs = sc; b = e }
           }
           if (b && !nearHunter && (hpFrac > 0.45 || b.hp < 300)) { fightTarget = b; mode = "fight" }
         }
         this.squadTid = fightTarget ? fightTarget.id : null
+        this.fightPassive = !!fightTarget && !this.hunterIds.has(fightTarget.id)
       } else if (this.opts.hunt) {
         if (d < 260 && (hasLos || t - target.seenT < 5)) { mode = "fight"; fightTarget = target }
       } else if ((this.opts.style ?? "stealth") === "fighter" && !late) {
@@ -388,10 +400,11 @@ export class Brain {
       let bestP: any = null, bpv = -Infinity
       for (const p of obs.pickups ?? []) {
         if ((this.failedTakes.get(p.id) ?? -99) > t - 3) continue
-        const pr = WEAPON_PRIO[p.kind] ?? 0
+        const WP = this.opts.wprio ?? WEAPON_PRIO
+        const pr = WP[p.kind] ?? 0
         const have = W.some((w: any) => w && w.kind === p.kind)
         if (have) continue
-        const curSec = secW ? WEAPON_PRIO[secW.kind] ?? 0 : -1
+        const curSec = secW ? WP[secW.kind] ?? 0 : -1
         if (pr <= curSec) continue
         const d = hyp(p.pos[0] - pos[0], p.pos[1] - pos[1])
         const lootR = mode === "evade" ? 25 : (!secW && (this.opts.lootFar ?? true) ? 160 : 90)
@@ -479,6 +492,17 @@ export class Brain {
       }
     }
 
+    if ((this.opts.prowl ?? false) && mode === "travel" && !urgent && goalWhy === "home" && hpFrac > 0.7 && !npcFlee) {
+      // go find an idle squad bot we saw earlier (they don't hunt us, so they're free kills)
+      let best: P2 | null = null, bd = Infinity
+      for (const [id, lp] of this.passiveSeen) {
+        if (t - lp.t > 60 || this.hunterIds.has(id) || !this.tracks.has(id) && t - lp.t > 45) continue
+        const d = hyp(lp.p[0] - pos[0], lp.p[1] - pos[1])
+        if (d < 25) { this.passiveSeen.delete(id); continue }
+        if (d < bd && d < 380 && zoneSafeFor(lp.p, 10)) { bd = d; best = lp.p }
+      }
+      if (best) { goal = best; goalWhy = "prowl" }
+    }
     if (this.opts.hunt && mode === "travel" && !urgent && goalWhy === "home") {
       const loud = this.heard.filter((h) => (h.kind === "gun" || h.kind === "laser" || h.kind === "lightning" || h.kind === "mortar") && h.dist !== "far" && t - h.t < 4).sort((a, b) => b.t - a.t)[0]
       if (loud) {
@@ -502,12 +526,19 @@ export class Brain {
       boost = me.energy > 30
     } else if (mode === "fight" && fightTarget) {
       if (t - fightTarget.losT > 1.0) move = this.navMove(pos, [fightTarget.pos[0], fightTarget.pos[1]], [])
+      else if (this.fightPassive && (this.opts.stillPassive ?? false) && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) > 30) move = [0, 0]
       else if (this.opts.tactical) {
         const gunReady = !!gun && (gun.ammo ?? 1) > 0 && (gun.reload ?? 0) <= 0.2
         const secReady = !!secW && secW.kind === "laser" && ((this.opts.precharge ?? false) ? (secW.charge ?? 0) >= (secW.stats?.charge ?? 0.75) - 0.1 : (secW.cooldown ?? 0) < 0.5)
         move = this.tacticalMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac, gunReady || secReady)
       }
       else move = this.fightMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac)
+      if ((this.opts.fightBoost ?? false) && me.grounded) {
+        // strafe at boost speed so leading shots miss; recover energy in between
+        if (me.energy < 15) this.boostRest = true
+        else if (me.energy > 55) this.boostRest = false
+        if (!this.boostRest && hyp(move[0], move[1]) > 0.3) boost = true
+      }
     } else if (goal) {
       const gd = hyp(goal[0] - pos[0], goal[1] - pos[1])
       const arrive = goalWhy === "home" ? 6 : 1.5
@@ -701,7 +732,14 @@ export class Brain {
       }
       if (secAim) { aimYaw = secAim[0]; aimPitch = secAim[1] }
       if (gun && gunSlot >= 0 && hasLos && d3 < (gun.stats?.range ?? 230) * 0.98 && !secAim) {
-        if ((gun.ammo ?? 1) > 0 && (gun.reload ?? 0) <= 0 && err < tol) fire[gunSlot] = true
+        let gunOk = true
+        if (this.opts.gunDisc ?? false) {
+          // bullets take d/252 s to arrive; a jinking hunter at long range dodges them, so save the magazine
+          const sp = hyp(e.vel[0], e.vel[1])
+          const passive = !this.hunterIds.has(e.id)
+          gunOk = d3 < 85 || sp < 3 || (passive && d3 < 180) || e.hp < 200
+        }
+        if (gunOk && (gun.ammo ?? 1) > 0 && (gun.reload ?? 0) <= 0 && err < tol) fire[gunSlot] = true
       }
       if (gun && (gun.ammo ?? 1) === 0 && (gun.reload ?? 0) <= 0) reload = true
     } else if (farmTarget && gun) {
@@ -974,9 +1012,9 @@ export class Brain {
     const d = hyp(dx, dy) || 1
     const ux = dx / d, uy = dy / d
     // preferred range
-    let pref = 110
+    let pref = this.opts.prefRange ?? 110
     if (secKind === "lightning") pref = 25
-    else if (secKind === "laser") pref = 120
+    else if (secKind === "laser") pref = Math.max(pref, 120)
     else if (secKind === "mortar") pref = 90
     if (e.weapons.includes("lightning") && secKind !== "lightning") pref = Math.max(pref, 80)
     if (t > this.jinkT) {
@@ -1058,6 +1096,9 @@ export class Brain {
   tacWant = true
   huntEv = new Map<number, number>()
   squadTid: number | null = null
+  boostRest = false
+  passiveSeen = new Map<number, { p: P2; t: number }>()
+  fightPassive = false
   hunterIds = new Set<number>()
   laserFullT = -1
 
