@@ -290,6 +290,11 @@ export class Sim {
     if (by && by.id !== target.id) { const at = ((target as any).atk ??= new Map()); at.set(by.id, this.t) }
     if (by && !(by.ctrl as any).house && (target.ctrl as any).house) (target as any).hitByP = this.t
     if (rear) (target as any).rearDmg = ((target as any).rearDmg ?? 0) + a
+    if (by && by.id !== target.id && target.ctrl.name === "MINE") {
+      const dd = hyp(by.pos[0] - target.pos[0], by.pos[1] - target.pos[1])
+      const bk = weapon + (dd < 50 ? "<50" : dd < 100 ? "<100" : dd < 150 ? "<150" : "150+")
+      const hb = ((target as any).byDist ??= {}); hb[bk] = (hb[bk] ?? 0) + a
+    }
     ;(target as any).taken = ((target as any).taken ?? {}); (target as any).taken[weapon] = ((target as any).taken[weapon] ?? 0) + a
     if (by) { (by as any).dealt = ((by as any).dealt ?? {}); (by as any).dealt[weapon] = ((by as any).dealt[weapon] ?? 0) + a }
     ;(target as any).lastW = weapon
@@ -461,6 +466,9 @@ export class Sim {
     const wf = this.wallAlong(a, b)
     const h = this.rayHit(a, b, m.id, 0.05)
     this.emitSound("laser", m.pos, m.id)
+    const st = ((m as any).lz ??= { shots: 0, hitMech: 0, full: 0 }); st.shots++; if (frac > 0.95) st.full++
+    if (process.env.LZDBG && m.ctrl.name === "MINE") console.log("LASER t=" + this.t.toFixed(2), "frac", frac.toFixed(2), "held", JSON.stringify(m.action.fire), (m.ctrl as any).label)
+    if (h && h.f < wf && h.kind === "mech") st.hitMech++
     if (h && h.f < wf) {
       let d = dmg
       if (h.kind === "mech" && (h.obj as Mech).weapons.some((x) => x?.kind === "mortar")) d *= 1 + w.stats.cookoff
@@ -720,6 +728,11 @@ export class Sim {
     for (const m of alive) {
       if (!m.alive) continue
       this.stepMech(m, dt)
+      if (m.alive && m.ctrl.name === "MINE") {
+        const lw = m.weapons.find((w) => w && w.kind === "laser")
+        const st = ((m as any).lz ??= { shots: 0, hitMech: 0, full: 0 })
+        if (lw) { st.hasT = (st.hasT ?? 0) + dt; if ((lw.charge ?? 0) > 0) st.chgT = (st.chgT ?? 0) + dt; if ((lw.cooldown ?? 0) <= 0 && !((lw.charge ?? 0) > 0)) st.idleT = (st.idleT ?? 0) + dt }
+      }
       if (m.alive) this.fireWeapons(m, dt)
     }
     // one-shot fields only for the first tick of the decision
@@ -781,7 +794,7 @@ export class Sim {
       for (const id of ids) this.mechs[id].place = p
       p += ids.length
     }
-    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT, cause: m.alive ? 'alive' : (m as any).lastW, dealt: (m as any).dealt ?? {}, taken: (m as any).taken ?? {}, nAtk: (m as any).nAtk ?? 0, rearDmg: (m as any).rearDmg ?? 0 }))
+    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT, cause: m.alive ? 'alive' : (m as any).lastW, dealt: (m as any).dealt ?? {}, taken: (m as any).taken ?? {}, nAtk: (m as any).nAtk ?? 0, rearDmg: (m as any).rearDmg ?? 0, byDist: (m as any).byDist ?? {}, lz: (m as any).lz ?? { shots: 0, hitMech: 0, full: 0 } }))
   }
 }
 
