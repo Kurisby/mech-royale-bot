@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  faceThreat?: boolean
   healHide?: number
   zapSave?: boolean
   laserFirst?: number
@@ -556,6 +557,11 @@ export class Brain {
         }
       }
       farmTarget = best
+      if (best && (this.opts.faceThreat ?? false)) {
+        // don't turn our back on a hunter to shoot a crate
+        const hd = this.lastHunterDir(pos, 10)
+        if (hd != null && Math.abs(wrap(Math.atan2(best.pos[1] - pos[1], best.pos[0] - pos[0]) - hd)) > 1.6) { farmTarget = null; best = null }
+      }
       if (best) {
         const d = hyp(best.pos[0] - pos[0], best.pos[1] - pos[1])
         // track crate progress: give up on crates we can't damage
@@ -894,6 +900,10 @@ export class Brain {
       if (t - this.lastDamageT < 3) aimYaw = this.lastDamageBearing
       else if (recentTrack && t - recentTrack.seenT < 6) aimYaw = Math.atan2(recentTrack.pos[1] - pos[1], recentTrack.pos[0] - pos[0])
       else if (recentLoud && recentLoud.dist !== "far") aimYaw = recentLoud.bearing
+      else if ((this.opts.faceThreat ?? false) && this.lastHunterDir(pos, 25) != null) {
+        // a hunter we lost sight of will come back from that side: keep our front (1x damage, not 1.5x) toward it
+        aimYaw = this.lastHunterDir(pos, 25)! + Math.sin(t * 1.3) * 0.5
+      }
       else if (hyp(move[0], move[1]) > 0.3) {
         if (this.opts.scan ?? false) aimYaw = Math.atan2(move[1], move[0]) + Math.sin(t * 2.4) * 1.5
         else aimYaw = Math.atan2(move[1], move[0]) + Math.sin(t * 1.3) * 0.7
@@ -1193,6 +1203,16 @@ export class Brain {
   }
 
   dodgeN = 0
+  // bearing to the most recently seen hunter (within maxAge s and 260 m), or null
+  lastHunterDir(pos: V3, maxAge: number): number | null {
+    let b: Track | null = null
+    for (const e of this.tracks.values()) {
+      if (!this.hunterIds.has(e.id) || this.t - e.seenT > maxAge) continue
+      if (hyp(e.pos[0] - pos[0], e.pos[1] - pos[1]) > 260) continue
+      if (!b || e.seenT > b.seenT) b = e
+    }
+    return b ? Math.atan2(b.pos[1] - pos[1], b.pos[0] - pos[0]) : null
+  }
   healing = false
   healSpot: P2 | null = null
   healSpotT = -99

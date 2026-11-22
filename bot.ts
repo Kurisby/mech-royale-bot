@@ -17,7 +17,9 @@ const PROFILES: Record<string, any> = {
   dropper2: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250 },
   healer2: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, healHide: 0.7 },
   closer: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250 },
+  facer: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, faceThreat: true },
   aggro: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.6, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, passiveR: 250 },
+  facer2: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.6, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, passiveR: 250, faceThreat: true },
   scan3: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, scan: true },
   aggro2: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.6, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, scan: true, passiveR: 250 },
   healer: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, healHide: 0.7 },
@@ -27,7 +29,7 @@ const PROFILES: Record<string, any> = {
   hopper: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, hop: true },
   scanner: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, scan: true, reloadGlance: true, phantom: true },
 }
-const PROFILE = "aggro"
+const PROFILE = "facer"
 const MAP_FALLBACK = new URL("./arena", import.meta.url).pathname
 
 run((hello: Hello) => {
