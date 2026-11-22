@@ -1,7 +1,7 @@
 import { GameMap } from "../map.ts"
 import { Brain } from "../brain.ts"
 import { Sim, loadConfig, type Factory } from "./sim.ts"
-import { Rusher } from "./opponents.ts"
+import { Rusher, House } from "./opponents.ts"
 import * as V from "./variants.ts"
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.split("=")))
@@ -15,14 +15,16 @@ for (let s = seed0; s < seed0 + n; s++) {
   const facs: Factory[] = []
   const mySlots = new Set<number>()
   // 2 copies of our bot per match at random-ish slots for more samples
-  mySlots.add(s % 16); mySlots.add((s * 7 + 3) % 16)
+  mySlots.add(s % 16); if (field !== "house" && field !== "ffa") mySlots.add((s * 7 + 3) % 16)
   for (let i = 0; i < 16; i++) {
     if (mySlots.has(i)) facs.push((h, m) => { const b: any = V.make(mine, h, m); b.name = "MINE"; return b })
+    else if (field === "house" || field === "ffa") { const tierOf = (k: number) => (k < 4 ? 0 : k < 8 ? 1 : k < 12 ? 2 : 3); const k = [...Array(i).keys()].filter((q) => !mySlots.has(q)).length; facs.push((h, m) => new House(V.make(args.hb ?? "pro", h, m), tierOf(k))) }
     else if (field === "rusher" || (field === "mixed" && i % 2 === 0) || (field === "promix" && i % 3 === 0)) facs.push((h, m) => new Rusher(h, m))
     else facs.push((h, m) => { const b: any = V.make(args.opp ?? (field === "pro" || field === "promix" ? "pro" : field === "hunter" ? "hunter" : field), h, m); b.name = "opp"; return b })
   }
   const t0 = performance.now()
   const sim = new Sim(map, cfg, s * 1000 + 17, facs)
+  if (field === "house") { sim.house = true; if (args.every) sim.houseEvery = +args.every; if (args.late) sim.houseLate = +args.late; if (args.ret) sim.retaliateS = +args.ret; if (args.omni) sim.omniHouse = args.omni === "1" }
   const r = sim.run()
   const ms = performance.now() - t0
   for (const x of r) res.push({ seed: s, ...x })

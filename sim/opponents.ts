@@ -69,3 +69,23 @@ export class Example {
     return a
   }
 }
+
+// House bot wrapper: hunts only the player when active; aim noise by tier (0 easy .. 3 expert)
+export class House {
+  house = true
+  active = false
+  tier: number
+  inner: any
+  name = "house"
+  noise: number
+  rng = Math.random
+  constructor(inner: any, tier: number) { this.inner = inner; this.tier = tier; this.noise = [0.045, 0.025, 0.012, 0.004][tier] }
+  act(obs: any) {
+    const a = this.inner.act(obs)
+    if (a && a.aim && this.noise > 0) {
+      const g = () => { let u = 0, v = 0; while (u === 0) u = Math.random(); v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v) }
+      a.aim = [a.aim[0] + g() * this.noise, a.aim[1] + g() * this.noise * 0.6]
+    }
+    return a
+  }
+}
