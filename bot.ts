@@ -8,8 +8,9 @@ const PROFILES: Record<string, any> = {
   fighter: { stealth: false, style: "x", roof: false, aggression: 1.0, chase: true },
   squad: { style: "squad", roof: false, farmHard: true, huntGap: 80 },
   prowler: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true },
+  dodger: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.6, precharge: true, fightBoost: true },
 }
-const PROFILE = "prowler"
+const PROFILE = "dodger"
 const MAP_FALLBACK = new URL("./arena", import.meta.url).pathname
 
 run((hello: Hello) => {

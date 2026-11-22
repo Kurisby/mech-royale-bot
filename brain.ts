@@ -75,6 +75,15 @@ export interface BrainOpts {
   fightBoost?: boolean
   wprio?: Record<string, number>
   gunDisc?: boolean
+  evadeHp?: number
+  dropR?: number
+  strictHunt?: boolean
+  passiveR?: number
+  passiveHp?: number
+  killLoot?: boolean
+  farmFirstT?: number
+  farmFirstCubes?: number
+  rearOnly?: boolean
 }
 
 export class Brain {
@@ -182,6 +191,9 @@ export class Brain {
           if (e.by != null) this.hitBy.set(e.by, t)
           this.dmgWindow.push({ t, a: e.amount })
         }
+      } else if (e.type === "kill") {
+        const tr = this.tracks.get(e.target)
+        if (tr) this.killSpots.push({ p: [tr.pos[0], tr.pos[1]], t })
       } else if (e.type === "take_failed") {
         this.failedTakes.set(e.id, t)
       }
@@ -222,6 +234,13 @@ export class Brain {
       const d = hyp(e.pos[0] - pos[0], e.pos[1] - pos[1])
       let ev = 0
       if (t - (this.hitBy.get(e.id) ?? -99) < 1) ev = 99
+      if (this.opts.strictHunt ?? false) {
+        // only sustained, precise aim at us (with a clear line) counts; idle bots walking our way don't
+        if (d < 230 && t - e.losT < 0.3 && this.isAimingAt(e, pos, 0.05)) ev += 0.1
+        const acc = (this.huntEv.get(e.id) ?? 0) * 0.97 + ev
+        this.huntEv.set(e.id, acc)
+        if (acc > 1.5) this.hunterIds.add(e.id)
+      } else {
       if (d < 220 && this.isAimingAt(e, pos, 0.12)) ev += 0.1
       const vr = d > 1 ? -((e.vel[0] * (e.pos[0] - pos[0]) + e.vel[1] * (e.pos[1] - pos[1])) / d) : 0
       if (d < 160 && vr > 3) ev += 0.05
@@ -229,6 +248,7 @@ export class Brain {
       const acc = (this.huntEv.get(e.id) ?? 0) * 0.995 + ev
       this.huntEv.set(e.id, acc)
       if (acc > 1.2) this.hunterIds.add(e.id)
+      }
       if (!this.hunterIds.has(e.id)) this.passiveSeen.set(e.id, { p: [e.pos[0], e.pos[1]], t })
     }
     for (const id of this.passiveSeen.keys()) if (this.hunterIds.has(id)) this.passiveSeen.delete(id)
@@ -316,22 +336,29 @@ export class Brain {
         const hl = enemies.filter((e) => this.hunterIds.has(e.id) && t - e.losT < 0.6 && dist(e) < 240)
         if (hl.length) {
           let b = hl[0], bs = Infinity
-          for (const e of hl) { const sc = dist(e) * 2 + e.hp + (e.id === this.squadTid ? -300 : 0); if (sc < bs) { bs = sc; b = e } }
+          for (const e of hl) {
+            const shooting = (this.opts.strictHunt ?? false) && t - (this.hitBy.get(e.id) ?? -99) < 3
+            const sc = dist(e) * 2 + e.hp + (e.id === this.squadTid ? -300 : 0) + (shooting ? -500 : 0)
+            if (sc < bs) { bs = sc; b = e }
+          }
           fightTarget = b; mode = "fight"
-          if (hpFrac < 0.3 && hl.length >= 2 && b.hp > 400) mode = "evade"
+          if (hpFrac < (this.opts.evadeHp ?? 0.3) && hl.length >= 2 && b.hp > 400) mode = "evade"
         } else {
           const nearHunter = [...this.tracks.values()].some((e) => this.hunterIds.has(e.id) && t - e.seenT < 6 && dist(e) < (this.opts.huntGap ?? 130))
           let b: Track | null = null, bs = Infinity
           for (const e of enemies) {
             if (this.hunterIds.has(e.id) || t - e.losT > 0.6 || t - e.firstT < 1.5) continue
             const de = dist(e)
-            if (de > 200) continue
+            if (de > (this.opts.passiveR ?? 200)) continue
             const yawUs = Math.atan2(pos[1] - e.pos[1], pos[0] - e.pos[0])
             const behind = Math.abs(wrap(yawUs - e.aim[0])) > 1.25 && de > 50
+            if ((this.opts.rearOnly ?? false) && !behind && e.id !== this.squadTid && e.hp > 400) continue
             const sc = de * 2 + e.hp + (e.id === this.squadTid ? -400 : 0) + (behind ? -(this.opts.rearBonus ?? 0) : 0)
             if (sc < bs) { bs = sc; b = e }
           }
-          if (b && !nearHunter && (hpFrac > 0.45 || b.hp < 300)) { fightTarget = b; mode = "fight" }
+          const ffT = this.opts.farmFirstT ?? 0
+          const farming = t < ffT && (me.cubes ?? 0) < (this.opts.farmFirstCubes ?? 10)
+          if (b && !nearHunter && !farming && (hpFrac > (this.opts.passiveHp ?? 0.45) || b.hp < 300)) { fightTarget = b; mode = "fight" }
         }
         this.squadTid = fightTarget ? fightTarget.id : null
         this.fightPassive = !!fightTarget && !this.hunterIds.has(fightTarget.id)
@@ -434,12 +461,18 @@ export class Brain {
           if (d < bcd && d < (calm ? (fh ? 120 : 80) : 30) && zoneSafeFor([c.pos[0], c.pos[1]], 3)) { bcd = d; bc = c }
         }
         if (bc) { goal = [bc.pos[0], bc.pos[1]]; goalWhy = "cube" }
+        else if ((this.opts.killLoot ?? false) && calm && hpFrac > 0.4) {
+          // walk over to where we killed something: its cubes (and weapon) are lying there
+          this.killSpots = this.killSpots.filter((k) => t - k.t < 50 && hyp(k.p[0] - pos[0], k.p[1] - pos[1]) > 6)
+          const ks = this.killSpots.filter((k) => zoneSafeFor(k.p, 3)).sort((a, b) => hyp(a.p[0] - pos[0], a.p[1] - pos[1]) - hyp(b.p[0] - pos[0], b.p[1] - pos[1]))[0]
+          if (ks) { goal = ks.p; goalWhy = "killspot" }
+        }
         else if (obs.drops?.length && hpFrac > 0.3) {
           // supply drop if close and uncontested
           for (const dr of obs.drops) {
             const d = hyp(dr.pos[0] - pos[0], dr.pos[1] - pos[1])
-            if (d > 110 || dr.lands_in > d / 11 + 3) continue
-            const contested = [...this.tracks.values()].some((e) => t - e.seenT < 4 && hyp(e.pos[0] - dr.pos[0], e.pos[1] - dr.pos[1]) < 70)
+            if (d > (this.opts.dropR ?? 110) || dr.lands_in > d / 11 + 3) continue
+            const contested = [...this.tracks.values()].some((e) => t - e.seenT < 4 && hyp(e.pos[0] - dr.pos[0], e.pos[1] - dr.pos[1]) < 70 && (!(this.opts.dropR) || this.hunterIds.has(e.id)))
             if (contested && !(late && hpFrac > 0.6)) continue
             if (dr.holder != null && dr.holder !== this.me) continue
             goal = [dr.pos[0], dr.pos[1]]
@@ -1096,6 +1129,7 @@ export class Brain {
   tacWant = true
   huntEv = new Map<number, number>()
   squadTid: number | null = null
+  killSpots: { p: P2; t: number }[] = []
   boostRest = false
   passiveSeen = new Map<number, { p: P2; t: number }>()
   fightPassive = false
