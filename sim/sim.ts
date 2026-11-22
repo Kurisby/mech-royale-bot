@@ -341,7 +341,7 @@ export class Sim {
       if (this.rng.next() < this.cfg.loot.crate_weapon_chance) this.pickups.push({ id: this.nextId.pick++, kind: ["mortar", "laser", "lightning"][Math.floor(this.rng.next() * 3)], pos: [c.pos[0] + 1, c.pos[1], c.pos[2]] })
     }
   }
-  dmgMul(m: Mech) { return 1 + this.cfg.cubes.damage_per_cube * Math.min(m.cubes, this.cfg.cubes.stat_cap) }
+  dmgMul(m: Mech) { return (1 + this.cfg.cubes.damage_per_cube * Math.min(m.cubes, this.cfg.cubes.stat_cap)) * ((m as any).atkx ?? 1) }
 
   // ray vs actors: returns first actor hit along segment a->b (excluding owner)
   rayHit(a: V3, b: V3, owner: number, rad: number): { kind: string; obj: any; f: number } | null {

@@ -114,6 +114,10 @@ export interface BrainOpts {
   zapSave?: boolean
   laserFirst?: number
   gunThru?: boolean
+  dropRushR?: number
+  dropRush?: boolean
+  farmHp?: number
+  dodgeRest?: boolean
   prefOrder?: boolean
   upPrioZap?: string[]
   zapApproach?: boolean
@@ -259,6 +263,9 @@ export class Brain {
             if (e.rear) D.rear++
           }
         }
+      } else if (e.type === "drop") {
+        ;(this.dbg as any).drops = ((this.dbg as any).drops ?? 0) + 1
+        ;(this.dbg as any).dropHpGain = ((this.dbg as any).dropHpGain ?? 0) + (1 - this.lastHpFrac)
       } else if (e.type === "kill") {
         this.nKills++
         const tr = this.tracks.get(e.target)
@@ -368,6 +375,8 @@ export class Brain {
     const myHp = me.hp
     const myMax = me.max_hp
     const hpFrac = myHp / myMax
+    const prevHpFrac = this.lastHpFrac
+    this.lastHpFrac = hpFrac
     const visibleThreats = enemies.filter((e) => t - e.losT < 1.0 || hyp(e.pos[0] - pos[0], e.pos[1] - pos[1]) < 60)
     const recentDmg = this.dmgWindow.reduce((s, d) => s + d.a, 0)
     const underFire = t - this.lastDamageT < 2.5
@@ -625,7 +634,7 @@ export class Brain {
         else npcFlee = n
       }
     }
-    if (!farmTarget && (this.opts.farm ?? true) && calm && !urgent && gun && hpFrac > 0.5 && t < 330) {
+    if (!farmTarget && (this.opts.farm ?? true) && calm && !urgent && gun && hpFrac > (this.opts.farmHp ?? 0.5) && t < 330) {
       let best: any = null, bd = Infinity
       for (const c of obs.crates ?? []) {
         const d = hyp(c.pos[0] - pos[0], c.pos[1] - pos[1])
@@ -925,6 +934,38 @@ export class Brain {
         }
       }
     }
+    // supply drop rush: 4 s alone in the ring gives full HP, full energy and 3 cubes, even in the middle of a fight
+    this.dropRushing = false
+    if ((this.opts.dropRush ?? false) && !urgent && obs.drops?.length) {
+      let bd: any = null, bdist = Infinity
+      const R = (this.opts.dropRushR ?? 1) * (hpFrac < 0.6 ? 260 : (hpFrac < 0.9 || (me.cubes ?? 0) < 10) ? 200 : 120)
+      for (const dr of obs.drops) {
+        const d = hyp(dr.pos[0] - pos[0], dr.pos[1] - pos[1])
+        if (d > R || d > bdist) continue
+        if (dr.lands_in > d / 13 + 8) continue
+        if (dr.holder != null && dr.holder !== this.me) continue
+        if (hyp(dr.pos[0] - zNow.c[0], dr.pos[1] - zNow.c[1]) > zNow.r - 4) continue
+        // someone else standing in the ring freezes the clock: deal with them first
+        if (d > 10 && [...this.tracks.values()].some((e) => t - e.seenT < 2 && hyp(e.pos[0] - dr.pos[0], e.pos[1] - dr.pos[1]) < 11)) continue
+        if (mode === "travel" && hpFrac > 0.95 && (me.cubes ?? 0) >= (this.opts.cubeCap ?? 999)) continue
+        bd = dr; bdist = d
+      }
+      if (bd) {
+        this.dropRushing = true
+        this.label = "drop!"
+        if (bdist > 4.5) {
+          const mv = bdist > 14 ? this.navMove(pos, [bd.pos[0], bd.pos[1]], []) : [(bd.pos[0] - pos[0]) / bdist, (bd.pos[1] - pos[1]) / bdist]
+          move = [mv[0], mv[1]]
+          boost = me.grounded && me.energy > 15 && bdist > 12
+        } else {
+          // inside the ring: keep weaving, but never step out (leaving restarts the clock)
+          const nx = pos[0] + move[0] * 2.5, ny = pos[1] + move[1] * 2.5
+          if (hyp(nx - bd.pos[0], ny - bd.pos[1]) > 5.5) move = [(bd.pos[0] - pos[0]) / (bdist || 1), (bd.pos[1] - pos[1]) / (bdist || 1)]
+          boost = false
+        }
+        jump = false
+      }
+    }
     // zone override: never walk out
     {
       const nxp = pos[0] + move[0] * 3, nyp = pos[1] + move[1] * 3
@@ -1007,6 +1048,7 @@ export class Brain {
             if (secW.cooldown <= 0.05 || charge > 0) {
               if (charge >= full - 0.05 && lerr < ltol) {
                 fire[sec] = false // release
+                ;(this.dbg as any).aimedRel = ((this.dbg as any).aimedRel ?? 0) + 1
               } else {
                 fire[sec] = true
                 if (charge > full * 0.6) secAim = laserAim
@@ -1121,9 +1163,9 @@ export class Brain {
 
     const zapNear = secW?.kind === "lightning" && mode === "fight" && !!fightTarget && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) < 55
     const zapNow = zapNear && (this.opts.zapSave ?? false)
-    if ((this.opts.dodge ?? false) && me.grounded && obs.projectiles?.length && !zapNow) {
+    if ((this.opts.dodge ?? false) && me.grounded && obs.projectiles?.length && !zapNow && !this.dropRushing) {
       const charging = secW?.kind === "laser" && ((secW.charge ?? 0) > 0 || !!fire[sec])
-      const canBoost = me.energy > 8 && !(zapNear && (this.opts.zapCycle ?? false))
+      const canBoost = me.energy > 8 && !(zapNear && (this.opts.zapCycle ?? false)) && !((this.opts.dodgeRest ?? false) && this.boostRest && mode === "fight")
       const sp = (canBoost ? (me.stats?.boost_speed ?? 19.5) : walk) * (charging ? 0.5 : 1)
       const dm = this.dodgeMove(obs, me, pos, move, sp, scale)
       if (dm) { move = dm; if (canBoost) boost = true; this.dodgeN++ }
@@ -1453,6 +1495,8 @@ export class Brain {
   nKills = 0
   kiting = false
   kiting2 = false
+  dropRushing = false
+  lastHpFrac = 1
   zapOn = true
   lastFightTarget = -1
   myVel: V3 = [0, 0, 0]
