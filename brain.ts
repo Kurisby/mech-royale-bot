@@ -96,6 +96,9 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  zapSave?: boolean
+  laserFirst?: number
+  laserPref?: number
   dropPrio?: number
   dodgeStopPen?: number
   hop?: boolean
@@ -364,7 +367,7 @@ export class Brain {
           let b = hl[0], bs = Infinity
           for (const e of hl) {
             const shooting = ((this.opts.strictHunt ?? false) || (this.opts.shooterFirst ?? false)) && t - (this.hitBy.get(e.id) ?? -99) < 3
-            const sc = dist(e) * 2 + e.hp + (e.id === this.squadTid ? -300 : 0) + (shooting ? -500 : 0)
+            const sc = dist(e) * 2 + e.hp + (e.id === this.squadTid ? -300 : 0) + (shooting ? -500 : 0) + ((this.opts.laserFirst ?? 0) && e.weapons.includes("laser") ? -this.opts.laserFirst! : 0)
             if (sc < bs) { bs = sc; b = e }
           }
           fightTarget = b; mode = "fight"
@@ -617,7 +620,9 @@ export class Brain {
         move = this.tacticalMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac, gunReady || secReady)
       }
       else move = this.fightMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac)
-      if ((this.opts.fightBoost ?? false) && me.grounded) {
+      const zap = secW?.kind === "lightning" && (this.opts.zapSave ?? false) && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) < 55
+      if (zap) this.boostRest = true // inside arc range: every point of energy goes into the lightning
+      if ((this.opts.fightBoost ?? false) && me.grounded && !zap) {
         // strafe at boost speed so leading shots miss; recover energy in between
         if (me.energy < 15) this.boostRest = true
         else if (me.energy > 55) this.boostRest = false
@@ -898,7 +903,8 @@ export class Brain {
     // laser charging halves speed; if evading without laser shot, don't charge
     if (mode === "evade" && secW?.kind === "laser" && fire[sec] && (secW.charge ?? 0) === 0 && hyp(fightTarget!.pos[0] - pos[0], fightTarget!.pos[1] - pos[1]) > 150) fire[sec] = false
 
-    if ((this.opts.dodge ?? false) && me.grounded && obs.projectiles?.length) {
+    const zapNow = secW?.kind === "lightning" && (this.opts.zapSave ?? false) && mode === "fight" && !!fightTarget && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) < 55
+    if ((this.opts.dodge ?? false) && me.grounded && obs.projectiles?.length && !zapNow) {
       const charging = secW?.kind === "laser" && ((secW.charge ?? 0) > 0 || !!fire[sec])
       const canBoost = me.energy > 8
       const sp = (canBoost ? (me.stats?.boost_speed ?? 19.5) : walk) * (charging ? 0.5 : 1)
@@ -1152,7 +1158,7 @@ export class Brain {
     // preferred range
     let pref = this.opts.prefRange ?? 110
     if (secKind === "lightning") pref = 25
-    else if (secKind === "laser") pref = Math.max(pref, 120)
+    else if (secKind === "laser") pref = Math.max(pref, this.opts.laserPref ?? 120)
     else if (secKind === "mortar") pref = 90
     if (e.weapons.includes("lightning") && secKind !== "lightning") pref = Math.max(pref, 80)
     if (t > this.jinkT) {
