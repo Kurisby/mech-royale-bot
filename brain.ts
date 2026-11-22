@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  grab?: number
   rearApproach?: boolean
   finish?: number
   evade1?: number
@@ -716,6 +717,15 @@ export class Brain {
         move = this.tacticalMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac, gunReady || secReady)
       }
       else move = this.fightMove(pos, fightTarget, secW?.kind, nextC, nextR, zNow, hpFrac)
+      if ((this.opts.grab ?? 0) > 0 && (me.cubes ?? 0) < (this.opts.cubeCap ?? 999)) {
+        // cubes lying close by (a kill just dropped them): swing through them mid-fight, each is +4% HP and damage
+        let gc: any = null, gd = this.opts.grab!
+        for (const c of obs.cubes ?? []) {
+          const d = hyp(c.pos[0] - pos[0], c.pos[1] - pos[1])
+          if (d < gd && Math.abs(c.pos[2] - pos[2]) < 3.5 && this.map.clearLine(pos[0], pos[1], c.pos[0], c.pos[1])) { gd = d; gc = c }
+        }
+        if (gc) { const L = gd || 1; move = [((gc.pos[0] - pos[0]) / L) * 0.85 + move[0] * 0.35, ((gc.pos[1] - pos[1]) / L) * 0.85 + move[1] * 0.35] }
+      }
       const zap = secW?.kind === "lightning" && (this.opts.zapSave ?? false) && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) < 55
       if (zap) this.boostRest = true // inside arc range: every point of energy goes into the lightning
       if ((this.opts.fightBoost ?? false) && me.grounded && !zap) {
