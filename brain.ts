@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  healHide?: number
   zapSave?: boolean
   laserFirst?: number
   laserPref?: number
@@ -587,6 +588,22 @@ export class Brain {
         if (zoneSafeFor([gx, gy], 10)) { goal = [gx, gy]; goalWhy = "hunt" }
       }
     }
+
+    // hurt and nobody in sight: stop dealing damage (it resets the regen timer) and wait somewhere hidden
+    if ((this.opts.healHide ?? 0) > 0) {
+      if (hpFrac < this.opts.healHide!) this.healing = true
+      else if (hpFrac > 0.97) this.healing = false
+      if (this.healing && mode === "travel" && !urgent && !late && goalWhy !== "drop" && !npcFlee) {
+        if (!(t - this.npcDmgT < 3)) farmTarget = null
+        if (goalWhy !== "cube" || hyp(goal![0] - pos[0], goal![1] - pos[1]) > 40) {
+          const threats = [...this.tracks.values()].filter((e) => t - e.seenT < 12)
+          if (threats.length) {
+            if (!this.healSpot || t - this.healSpotT > 1.0) { this.healSpotT = t; this.healSpot = this.findHideSpot(pos, threats, nextC, nextR) }
+            if (this.healSpot) { goal = this.healSpot; goalWhy = "heal" }
+          }
+        }
+      }
+    } else this.healing = false
 
     // ---- movement vector
     let move: P2 = [0, 0]
@@ -1176,6 +1193,32 @@ export class Brain {
   }
 
   dodgeN = 0
+  healing = false
+  healSpot: P2 | null = null
+  healSpotT = -99
+  // closest reachable spot (straight line) that none of the given mechs can see, inside the next zone circle
+  findHideSpot(pos: V3, threats: Track[], nextC: P2, nextR: number): P2 | null {
+    const m = this.map
+    let best: P2 | null = null, bv = Infinity
+    for (const rr of [0, 5, 10, 15, 22, 30, 40]) {
+      for (let k = 0; k < (rr ? 16 : 1); k++) {
+        const a = (k / 16) * TAU
+        const x = pos[0] + Math.cos(a) * rr, y = pos[1] + Math.sin(a) * rr
+        if (rr) {
+          if (m.blocked[m.gIdx(x, y)] & 3) continue
+          if (!m.clearLine(pos[0], pos[1], x, y)) continue
+        }
+        if (hyp(x - nextC[0], y - nextC[1]) > nextR - 10) continue
+        const z = m.surfAt(x, y)
+        let seen = 0
+        for (const e of threats) if (m.los(e.pos[0], e.pos[1], e.pos[2] + 8, x, y, z + 4.5) || m.los(e.pos[0], e.pos[1], e.pos[2] + 8, x, y, z + 8.5)) seen++
+        const v = rr + seen * 60
+        if (v < bv) { bv = v; best = [x, y] }
+      }
+      if (bv < rr + 5) break
+    }
+    return best
+  }
   // incoming bullets are visible with position and velocity: pick the move closest to the one we want that keeps
   // every bullet of the next 0.8 s out of our body, simulating our own acceleration (null = nothing to dodge)
   dodgeMove(obs: any, me: any, pos: V3, want: P2, speed: number, scale: number): P2 | null {
