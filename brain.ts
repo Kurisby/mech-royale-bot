@@ -90,6 +90,8 @@ export interface BrainOpts {
   peek?: boolean
   shooterFirst?: boolean
   safeStill?: boolean
+  evade3?: boolean
+  evadeAll?: boolean
 }
 
 export class Brain {
@@ -349,6 +351,7 @@ export class Brain {
           }
           fightTarget = b; mode = "fight"
           if (hpFrac < (this.opts.evadeHp ?? 0.3) && hl.length >= 2 && b.hp > 400) mode = "evade"
+          if ((this.opts.evade3 ?? false) && hl.length >= 3 && b.hp > 400) mode = "evade"
         } else {
           const nearHunter = [...this.tracks.values()].some((e) => this.hunterIds.has(e.id) && t - e.seenT < 6 && dist(e) < (this.opts.huntGap ?? 130))
           let b: Track | null = null, bs = Infinity
@@ -1238,7 +1241,14 @@ export class Brain {
         const g = this.map.gIdx(x, y)
         if (this.map.blocked[g] & 1) continue
         const z = this.map.surfAt(x, y)
-        const hidden = !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 6) && !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 9)
+        let hidden = !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 6) && !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 9)
+        if (hidden && (this.opts.evadeAll ?? false)) {
+          // hide from every hunter we know about, not just the one we were fighting
+          for (const o of this.tracks.values()) {
+            if (o === e || !this.hunterIds.has(o.id) || t - o.seenT > 5 || hyp(o.pos[0] - x, o.pos[1] - y) > 230) continue
+            if (this.map.los(o.pos[0], o.pos[1], o.pos[2] + 8, x, y, z + 6)) { hidden = false; break }
+          }
+        }
         const de = hyp(x - e.pos[0], y - e.pos[1])
         const dz = hyp(x - zNow.c[0], y - zNow.c[1])
         let v = r * 0.6 - de * 0.3 + (hidden ? 0 : 60)
