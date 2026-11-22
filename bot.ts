@@ -14,10 +14,11 @@ const PROFILES: Record<string, any> = {
   dodger2: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.6, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true },
   careful: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true },
   dodger3: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true },
+  nomortar: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, wprio: { laser: 3, lightning: 2, mortar: -1, gun: 0 } },
   hopper: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, hop: true },
   scanner: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, scan: true, reloadGlance: true, phantom: true },
 }
-const PROFILE = "dodger3"
+const PROFILE = "nomortar"
 const MAP_FALLBACK = new URL("./arena", import.meta.url).pathname
 
 run((hello: Hello) => {

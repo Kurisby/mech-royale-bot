@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  dodgeStopPen?: number
   hop?: boolean
   reloadGlance?: boolean
 }
@@ -1210,7 +1211,7 @@ export class Brain {
     for (let k = 0; k < 16; k++) cands.push([Math.cos((k / 16) * TAU), Math.sin((k / 16) * TAU)])
     for (const c of cands) {
       if ((c[0] || c[1]) && this.map.wallDistAt(pos[0] + c[0] * 4, pos[1] + c[1] * 4) < 3) continue
-      const v = cost(c) + (wl > 0.05 ? (1 - (c[0] * wu[0] + c[1] * wu[1])) * 2 : (c[0] || c[1] ? 1 : 0))
+      const v = cost(c) + (wl > 0.05 ? (1 - (c[0] * wu[0] + c[1] * wu[1])) * 2 : (c[0] || c[1] ? 1 : 0)) + (c[0] || c[1] ? 0 : (this.opts.dodgeStopPen ?? 0))
       if (v < bc) { bc = v; best = c }
     }
     return best
