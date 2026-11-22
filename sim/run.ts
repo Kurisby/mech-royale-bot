@@ -23,6 +23,7 @@ for (let s = seed0; s < seed0 + n; s++) {
     else facs.push((h, m) => { const b: any = V.make(args.opp ?? (field === "pro" || field === "promix" ? "pro" : field === "hunter" ? "hunter" : field), h, m); b.name = "opp"; return b })
   }
   const t0 = performance.now()
+  Sim.armHouse = args.arm === "1"
   const sim = new Sim(map, cfg, s * 1000 + 17, facs)
   if (field === "house") { sim.house = true; if (args.every) sim.houseEvery = +args.every; if (args.late) sim.houseLate = +args.late; if (args.ret) sim.retaliateS = +args.ret; if (args.kdiv) sim.kdiv = +args.kdiv; if (args.omni) sim.omniHouse = args.omni === "1"; if (args.canopy) sim.canopy = args.canopy === "1" }
   if (args.hpx) for (const m of sim.mechs) if (m.ctrl.name === "MINE") { (m as any).stats.hp *= +args.hpx; m.hp *= +args.hpx }

@@ -114,6 +114,8 @@ export interface BrainOpts {
   zapSave?: boolean
   laserFirst?: number
   gunThru?: boolean
+  upPrioZap?: string[]
+  zapApproach?: boolean
   zapCycle?: boolean
   laserLust?: boolean
   mortarPref?: number
@@ -227,7 +229,8 @@ export class Brain {
     if (obs.offer && obs.offer.choices?.length) {
       let best = 0, bp = 999
       obs.offer.choices.forEach((c: any, i: number) => {
-        const p = (this.opts.upPrio ?? UPGRADE_PRIO).indexOf(c.id)
+        const holdsZap = (me.weapons ?? []).some((w: any) => w && w.kind === "lightning")
+        const p = ((holdsZap && this.opts.upPrioZap) || this.opts.upPrio || UPGRADE_PRIO).indexOf(c.id)
         const pr = p < 0 ? 500 : p
         if (pr < bp) { bp = pr; best = i }
       })
@@ -1400,6 +1403,11 @@ export class Brain {
     const px = -uy * this.jinkDir, py = ux * this.jinkDir
     let mx = px * 0.85 + ux * radial * 0.7
     let my = py * 0.85 + uy * radial * 0.7
+    if ((this.opts.zapApproach ?? false) && secKind === "lightning" && d > 36) {
+      // arcs reach 45 m and the target keeps its own distance: go straight in, with only a little weave
+      mx = ux * 1.0 + px * 0.35
+      my = uy * 1.0 + py * 0.35
+    }
     if ((this.opts.kite ?? false) && this.hunterIds.has(e.id)) {
       // hunters keep walking in: inside the range we want, back off along the most open line away from all of them
       if (d < pref - 12) this.kiting2 = true

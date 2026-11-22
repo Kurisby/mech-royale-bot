@@ -119,8 +119,11 @@ export class Sim {
     for (let i = 0; i < 16; i++) {
       const hello = { type: "hello", protocol: "mechfight/1", slot: i, seed: Math.floor(this.rng.next() * 2 ** 31), map: { dir: "", files: [] }, config: cfg }
       this.mechs[i].ctrl = factories[i](hello, map)
+      // real built-in bots hold a second weapon from the first seconds of a match
+      if (Sim.armHouse && (this.mechs[i].ctrl as any).house) { const w = this.mkWeapon(this.mechs[i], kinds[Math.floor(this.rng.next() * 3)]); w.equip = 0; this.mechs[i].weapons[1] = w }
     }
   }
+  static armHouse = false
 
   mkWeapon(m: Mech, kind: string): Weapon {
     const st = m.wstats[kind]
