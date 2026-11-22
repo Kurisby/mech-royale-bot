@@ -6,6 +6,13 @@ import type { GameMap } from "../map.ts"
 import { Idle, Example } from "./opponents.ts"
 import { ZoneBot } from "../zonebot.ts"
 export function make(kind: string, h: any, m: GameMap): any {
+  if (kind.startsWith("p:")) {
+    // a profile straight from bot.ts, so the sim runs exactly what ships
+    const src = require("fs").readFileSync("/home/user/mechbot/bot.ts", "utf8")
+    const mm = new RegExp("^  " + kind.slice(2) + ": (\\{.*\\}),$", "m").exec(src)
+    if (!mm) throw new Error("no profile " + kind)
+    return new Brain(h, m, new Function("return " + mm[1])())
+  }
   if (kind === "hunter") return new BrainV1(h, m, { aggression: 0.9 })
   if (kind === "v1") return new BrainV1(h, m, {})
   if (kind === "pro") return new BrainPro(h, m, { aggression: 1.0, hunt: true, lootFar: true, coverCheck: true })

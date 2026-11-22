@@ -113,6 +113,8 @@ export interface BrainOpts {
   healHide?: number
   zapSave?: boolean
   laserFirst?: number
+  gunThru?: boolean
+  cookPrio?: number
   laserPref?: number
   dropPrio?: number
   dodgeStopPen?: number
@@ -385,7 +387,7 @@ export class Brain {
           let b = hl[0], bs = Infinity
           for (const e of hl) {
             const shooting = ((this.opts.strictHunt ?? false) || (this.opts.shooterFirst ?? false)) && t - (this.hitBy.get(e.id) ?? -99) < 3
-            const sc = dist(e) * 2 + e.hp + (e.id === this.squadTid ? -300 : 0) + (shooting ? -500 : 0) + ((this.opts.laserFirst ?? 0) && e.weapons.includes("laser") ? -this.opts.laserFirst! : 0)
+            const sc = dist(e) * 2 + e.hp + (e.id === this.squadTid ? -300 : 0) + (shooting ? -500 : 0) + ((this.opts.laserFirst ?? 0) && e.weapons.includes("laser") ? -this.opts.laserFirst! : 0) + ((this.opts.cookPrio ?? 0) && secW?.kind === "laser" && e.weapons.includes("mortar") ? -this.opts.cookPrio! : 0)
             if (sc < bs) { bs = sc; b = e }
           }
           // an idle bot we already brought low is a point and cubes: finish it before turning to the hunter
@@ -413,7 +415,7 @@ export class Brain {
             const yawUs = Math.atan2(pos[1] - e.pos[1], pos[0] - e.pos[0])
             const behind = Math.abs(wrap(yawUs - e.aim[0])) > 1.25 && de > 50
             if ((this.opts.rearOnly ?? false) && !behind && e.id !== this.squadTid && e.hp > 400) continue
-            const sc = de * 2 + e.hp + (e.id === this.squadTid ? -400 : 0) + (behind ? -(this.opts.rearBonus ?? 0) : 0)
+            const sc = de * 2 + e.hp + (e.id === this.squadTid ? -400 : 0) + (behind ? -(this.opts.rearBonus ?? 0) : 0) + ((this.opts.cookPrio ?? 0) && secW?.kind === "laser" && e.weapons.includes("mortar") ? -this.opts.cookPrio! : 0)
             if (sc < bs) { bs = sc; b = e }
           }
           const ffT = this.opts.farmFirstT ?? 0
@@ -941,7 +943,7 @@ export class Brain {
         }
       }
       if (secAim) { aimYaw = secAim[0]; aimPitch = secAim[1] }
-      if (gun && gunSlot >= 0 && hasLos && d3 < (gun.stats?.range ?? 230) * 0.98 && !secAim) {
+      if (gun && gunSlot >= 0 && hasLos && d3 < (gun.stats?.range ?? 230) * 0.98 && (!secAim || (this.opts.gunThru ?? false))) {
         let gunOk = true
         if (this.opts.gunDisc ?? false) {
           // bullets take d/252 s to arrive; a jinking hunter at long range dodges them, so save the magazine
