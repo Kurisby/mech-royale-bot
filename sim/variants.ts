@@ -76,6 +76,8 @@ export function make(kind: string, h: any, m: GameMap): any {
   if (kind === "sqpkS") return new Brain(h, m, { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, precharge: true, peek: true, strictHunt: true })
   if (kind === "v11") return new Brain(h, m, { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.6, precharge: true, fightBoost: true })
   if (kind === "v12") return new Brain(h, m, { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.6, precharge: true, fightBoost: true, peek: true, shooterFirst: true })
+  if (kind === "v13a") return new Brain(h, m, { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.6, precharge: true, fightBoost: true, peek: true, shooterFirst: true, safeStill: true, passiveHp: 0.7 })
+  if (kind === "v13") return new Brain(h, m, { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.6, precharge: true, fightBoost: true, peek: true, shooterFirst: true, safeStill: true, laserFix: true })
   if (kind === "f3c") return new Brain(h, m, { stealth: false, style: "x", roof: false, aggression: 1.0, chase: true })
   if (kind === "nocover") return new Brain(h, m, { coverCheck: false })
   if (kind === "noloot") return new Brain(h, m, { lootFar: false })

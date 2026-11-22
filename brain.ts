@@ -89,6 +89,7 @@ export interface BrainOpts {
   laserPlus?: boolean
   peek?: boolean
   shooterFirst?: boolean
+  safeStill?: boolean
 }
 
 export class Brain {
@@ -566,7 +567,8 @@ export class Brain {
       const pk = (this.opts.peek ?? false) && !this.fightPassive && t - fightTarget.seenT < 3 && this.peekMove(pos, fightTarget, secW, gun, nextC, nextR, zNow, hpFrac)
       if (pk) { move = this.peekVec; this.peekN++; this.lastPeekT = t }
       else if (t - fightTarget.losT > 1.0) move = this.navMove(pos, [fightTarget.pos[0], fightTarget.pos[1]], [])
-      else if (this.fightPassive && (this.opts.stillPassive ?? false) && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) > 30) move = [0, 0]
+      else if (this.fightPassive && (this.opts.stillPassive ?? false) && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) > 30
+        && !((this.opts.safeStill ?? false) && enemies.some((o) => this.hunterIds.has(o.id) && t - o.losT < 1 && hyp(o.pos[0] - pos[0], o.pos[1] - pos[1]) < 230))) move = [0, 0]
       else if (this.opts.tactical) {
         const gunReady = !!gun && (gun.ammo ?? 1) > 0 && (gun.reload ?? 0) <= 0.2
         const secReady = !!secW && secW.kind === "laser" && ((this.opts.precharge ?? false) ? (secW.charge ?? 0) >= (secW.stats?.charge ?? 0.75) - 0.1 : (secW.cooldown ?? 0) < 0.5)
