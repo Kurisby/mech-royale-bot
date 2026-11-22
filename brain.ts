@@ -96,6 +96,9 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  hardCover?: boolean
+  upPrio?: string[]
+  evade2?: boolean
   canopyCamp?: boolean
   treeCover?: boolean
   faceThreat?: boolean
@@ -197,7 +200,7 @@ export class Brain {
     if (obs.offer && obs.offer.choices?.length) {
       let best = 0, bp = 999
       obs.offer.choices.forEach((c: any, i: number) => {
-        const p = UPGRADE_PRIO.indexOf(c.id)
+        const p = (this.opts.upPrio ?? UPGRADE_PRIO).indexOf(c.id)
         const pr = p < 0 ? 500 : p
         if (pr < bp) { bp = pr; best = i }
       })
@@ -378,6 +381,7 @@ export class Brain {
           fightTarget = b; mode = "fight"
           if (hpFrac < (this.opts.evadeHp ?? 0.3) && hl.length >= 2 && b.hp > 400) mode = "evade"
           if ((this.opts.evade3 ?? false) && hl.length >= 3 && b.hp > 400) mode = "evade"
+          if ((this.opts.evade2 ?? false) && hl.length >= 2 && b.hp > 500 && hpFrac < 0.95) mode = "evade"
         } else {
           const nearHunter = [...this.tracks.values()].some((e) => this.hunterIds.has(e.id) && t - e.seenT < 6 && dist(e) < (this.opts.huntGap ?? 130))
           let b: Track | null = null, bs = Infinity
@@ -1467,6 +1471,8 @@ export class Brain {
         const de = hyp(x - e.pos[0], y - e.pos[1])
         const dz = hyp(x - zNow.c[0], y - zNow.c[1])
         let v = r * 0.6 - de * 0.3 + (hidden ? 0 : 60)
+        // canopy hides us but doesn't stop shots, and they track us 5 s after losing sight: prefer walls
+        if (hidden && (this.opts.treeCover ?? false) && (this.opts.hardCover ?? false) && this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 6)) v += 25
         if (dz > zNow.r - 5) v += 200
         if (hyp(x - nextC[0], y - nextC[1]) > nextR) v += 15
         if (v < bv) { bv = v; best = [x, y]; bestHidden = hidden && r < 35 }
