@@ -95,6 +95,7 @@ export interface BrainOpts {
   closePassive?: number
   phantom?: boolean
   scan?: boolean
+  hop?: boolean
   reloadGlance?: boolean
 }
 
@@ -605,6 +606,11 @@ export class Brain {
         if (me.energy < 15) this.boostRest = true
         else if (me.energy > 55) this.boostRest = false
         if (!this.boostRest && hyp(move[0], move[1]) > 0.3) boost = true
+      }
+      if ((this.opts.hop ?? false) && !this.fightPassive && t - fightTarget.losT < 0.5) {
+        // hop and hover a moment between shots: changes height so leading shots go over or under
+        if (me.grounded && me.energy > 45 && t - this.hopT > 1.6) { jump = true; this.hopT = t }
+        if (!me.grounded && t - this.hopT < 0.5 && me.energy > 30) { boost = true; this.jetOk = true }
       }
     } else if (goal) {
       const gd = hyp(goal[0] - pos[0], goal[1] - pos[1])
@@ -1300,6 +1306,7 @@ export class Brain {
     return [-(e.pos[0] - pos[0]) / 100, -(e.pos[1] - pos[1]) / 100]
   }
   jetOk = false
+  hopT = -99
   npcDmgT = -99
   npcDmgBy: number | null = null
   evadeHidden = true
