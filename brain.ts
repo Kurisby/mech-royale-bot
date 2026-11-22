@@ -95,6 +95,7 @@ export interface BrainOpts {
   closePassive?: number
   phantom?: boolean
   scan?: boolean
+  dodge?: boolean
   hop?: boolean
   reloadGlance?: boolean
 }
@@ -882,6 +883,13 @@ export class Brain {
     // laser charging halves speed; if evading without laser shot, don't charge
     if (mode === "evade" && secW?.kind === "laser" && fire[sec] && (secW.charge ?? 0) === 0 && hyp(fightTarget!.pos[0] - pos[0], fightTarget!.pos[1] - pos[1]) > 150) fire[sec] = false
 
+    if ((this.opts.dodge ?? false) && me.grounded && obs.projectiles?.length) {
+      const charging = secW?.kind === "laser" && ((secW.charge ?? 0) > 0 || !!fire[sec])
+      const canBoost = me.energy > 8
+      const sp = (canBoost ? (me.stats?.boost_speed ?? 19.5) : walk) * (charging ? 0.5 : 1)
+      const dm = this.dodgeMove(obs, me, pos, move, sp, scale)
+      if (dm) { move = dm; if (canBoost) boost = true; this.dodgeN++ }
+    }
     act.move = [move[0], move[1]]
     const ml = hyp(move[0], move[1])
     if (ml > 1) act.move = [move[0] / ml, move[1] / ml]
@@ -1146,6 +1154,67 @@ export class Brain {
     return [mx, my]
   }
 
+  dodgeN = 0
+  // incoming bullets are visible with position and velocity: pick the move closest to the one we want that keeps
+  // every bullet of the next 0.8 s out of our body, simulating our own acceleration (null = nothing to dodge)
+  dodgeMove(obs: any, me: any, pos: V3, want: P2, speed: number, scale: number): P2 | null {
+    const R = 2.5 * scale + 0.9, H = 9 * scale
+    const vel = me.vel ?? [0, 0, 0]
+    const bs: { p: number[]; v: number[] }[] = []
+    for (const p of obs.projectiles) {
+      if (p.kind === "mortar") continue
+      const vv = p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1]
+      if (vv < 100) continue
+      const rx = pos[0] - p.pos[0], ry = pos[1] - p.pos[1]
+      const tc = (rx * p.vel[0] + ry * p.vel[1]) / vv
+      if (tc < -0.05 || tc > 0.8) continue
+      const cx = p.pos[0] + p.vel[0] * tc - (pos[0] + vel[0] * tc), cy = p.pos[1] + p.vel[1] * tc - (pos[1] + vel[1] * tc)
+      if (hyp(cx, cy) > 14) continue
+      bs.push({ p: p.pos, v: p.vel })
+    }
+    if (!bs.length) return null
+    const dt = 0.05, acc = (me.stats?.ground_accel ?? 58.5) * dt
+    const cost = (dir: P2) => {
+      let px = pos[0], py = pos[1], vx = vel[0], vy = vel[1]
+      const wx = dir[0] * speed, wy = dir[1] * speed
+      const minD = bs.map(() => Infinity)
+      for (let k = 1; k <= 16; k++) {
+        const ox = px, oy = py
+        const dvx = wx - vx, dvy = wy - vy, dv = hyp(dvx, dvy)
+        if (dv <= acc) { vx = wx; vy = wy } else { vx += (dvx / dv) * acc; vy += (dvy / dv) * acc }
+        px += vx * dt; py += vy * dt
+        const t0 = (k - 1) * dt
+        for (let i = 0; i < bs.length; i++) {
+          const b = bs[i]
+          // relative position over this step is linear: closest approach in closed form
+          const r0x = b.p[0] + b.v[0] * t0 - ox, r0y = b.p[1] + b.v[1] * t0 - oy
+          const dx = b.v[0] * dt - (px - ox), dy = b.v[1] * dt - (py - oy)
+          const L2 = dx * dx + dy * dy
+          const f = L2 > 0 ? clamp(-(r0x * dx + r0y * dy) / L2, 0, 1) : 0
+          const d = hyp(r0x + dx * f, r0y + dy * f)
+          const bz = b.p[2] + b.v[2] * (t0 + f * dt)
+          if (bz < pos[2] - 0.5 || bz > pos[2] + H + 0.5) continue
+          if (d < minD[i]) minD[i] = d
+        }
+      }
+      let c = 0
+      for (const d of minD) if (d < R) c += 100 + (R - d) * 10
+      return c
+    }
+    const wl = hyp(want[0], want[1])
+    const wu: P2 = wl > 0.05 ? [want[0] / wl, want[1] / wl] : [0, 0]
+    const base = cost(wl > 0.05 ? wu : [0, 0])
+    if (base === 0) return null
+    let best: P2 = wl > 0.05 ? wu : [0, 0], bc = base
+    const cands: P2[] = [[0, 0]]
+    for (let k = 0; k < 16; k++) cands.push([Math.cos((k / 16) * TAU), Math.sin((k / 16) * TAU)])
+    for (const c of cands) {
+      if ((c[0] || c[1]) && this.map.wallDistAt(pos[0] + c[0] * 4, pos[1] + c[1] * 4) < 3) continue
+      const v = cost(c) + (wl > 0.05 ? (1 - (c[0] * wu[0] + c[1] * wu[1])) * 2 : (c[0] || c[1] ? 1 : 0))
+      if (v < bc) { bc = v; best = c }
+    }
+    return best
+  }
   peekVec: P2 = [0, 0]
   peekN = 0
   lastPeekT = -99
