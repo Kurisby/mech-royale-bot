@@ -50,3 +50,22 @@ export class Rusher {
     return a
   }
 }
+
+export class Idle { name = "idle"; act(obs: any) { return { tick: obs.tick } } }
+// port of the kit's example_bot.py
+export class Example {
+  name = "example"
+  act(obs: any) {
+    const me = obs.self, [x, y, z] = me.pos
+    const goal = obs.zone.next_center
+    const a: any = { tick: obs.tick }
+    if (obs.offer) a.pick = 0
+    const near = obs.pickups.filter((p: any) => Math.hypot(p.pos[0] - x, p.pos[1] - y) < 4)
+    if (me.weapons[1] == null && near.length && near[0].kind !== "gun") a.take = near[0].id
+    const en = obs.mechs.filter((m: any) => m.kind === "mech").sort((p: any, q: any) => Math.hypot(p.pos[0] - x, p.pos[1] - y, p.pos[2] - z) - Math.hypot(q.pos[0] - x, q.pos[1] - y, q.pos[2] - z))
+    const yaw = Math.atan2(goal[1] - y, goal[0] - x)
+    a.move = [Math.cos(yaw), Math.sin(yaw)]; a.aim = [yaw, 0]; a.boost = !me.in_zone; a.jump = obs.tick % 40 === 0
+    if (en.length) { const t = en[0].pos; a.aim = [Math.atan2(t[1] - y, t[0] - x), Math.atan2(t[2] - z - 2.5, Math.hypot(t[0] - x, t[1] - y))]; a.fire = [true, true] }
+    return a
+  }
+}

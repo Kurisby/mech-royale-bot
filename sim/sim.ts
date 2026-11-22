@@ -212,7 +212,7 @@ export class Sim {
     for (const o of this.mechs) {
       if (o === m || !o.alive) continue
       const oh = o.stats.height * this.scale(o)
-      if (this.canSee(m, o.pos, oh)) m.memory.set(o.id, this.t)
+      if ((m.ctrl as any).omni || this.canSee(m, o.pos, oh)) m.memory.set(o.id, this.t)
       const last = m.memory.get(o.id)
       if (last != null && this.t - last <= this.cfg.vision.memory_s) {
         vis.push({ id: o.id, kind: "mech", pos: o.pos.map((v) => +v.toFixed(2)), vel: o.vel.map((v) => +v.toFixed(2)), aim: [...o.aim], hp: Math.round(o.hp * 100) / 100, max_hp: this.maxHp(o), cubes: o.cubes, weapons: o.weapons.filter(Boolean).map((w) => w!.kind), charging: o.weapons.some((w) => w?.kind === "laser" && (w.charge ?? 0) > 0) })

@@ -53,6 +53,7 @@ export interface BrainOpts {
   aggression?: number // 0..1
   farm?: boolean
   hunt?: boolean
+  heal?: boolean
   coverCheck?: boolean
   lootFar?: boolean
 }
@@ -271,6 +272,7 @@ export class Brain {
       const byTarget = underFire && this.lastDamageBy === target.id
       if (this.opts.hunt) {
         if (d < 260 && (hasLos || t - target.seenT < 5)) { mode = "fight"; fightTarget = target }
+        if (this.opts.heal && hpFrac < 0.4 && target.hp > myHp) { mode = "evade"; fightTarget = target }
       } else if (late) {
         if (hasLos && d < 240) { mode = "fight"; fightTarget = target }
         else if (favorable && d < 150) { mode = "fight"; fightTarget = target }

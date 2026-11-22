@@ -53,6 +53,9 @@ export interface BrainOpts {
   aggression?: number // 0..1
   farm?: boolean
   hunt?: boolean
+  zoneFirst?: boolean
+  jink?: boolean
+  style?: string
   stealth?: boolean
   homeMode?: string
   duck?: boolean
@@ -277,6 +280,17 @@ export class Brain {
       const provoked = (t - (this.hitBy.get(target.id) ?? -99) < 8) || (target.charging && hasLos && this.isAimingAt(target, pos, 0.08)) || (d < 40 && tSees)
       if (this.opts.hunt) {
         if (d < 260 && (hasLos || t - target.seenT < 5)) { mode = "fight"; fightTarget = target }
+      } else if ((this.opts.style ?? "stealth") === "fighter" && !late) {
+        if (hasLos && d < 240) {
+          fightTarget = target
+          if (hpFrac < 0.35 && target.hp > 250 && d > 35) mode = "evade"
+          else if (tSees || provoked || favorable || d < 70) mode = "fight"
+          else { mode = "evade"; holdFire = true }
+        } else if (tSees && d < 200) {
+          fightTarget = target
+          mode = "evade"
+          holdFire = !provoked
+        }
       } else if ((this.opts.stealth ?? true) && !late && !provoked) {
         // not engaged: stay quiet. Only finish off a crippled mech that is close.
         if (hasLos && target.hp < 300 && d < 140 && hpFrac > 0.5 && !others) { mode = "fight"; fightTarget = target }
@@ -331,7 +345,7 @@ export class Brain {
         const curSec = secW ? WEAPON_PRIO[secW.kind] ?? 0 : -1
         if (pr <= curSec) continue
         const d = hyp(p.pos[0] - pos[0], p.pos[1] - pos[1])
-        const lootR = mode === "evade" ? 25 : (!secW && (this.opts.lootFar ?? false) ? 160 : 90)
+        const lootR = mode === "evade" ? 25 : (!secW && (this.opts.lootFar ?? true) ? 160 : 90)
         if (d > lootR) continue
         if (p.pos[2] - this.map.surfAt(p.pos[0], p.pos[1]) > 2 && Math.abs(p.pos[2] - pos[2]) > 2) continue // on a roof
         if ((this.map.blocked[this.map.gIdx(p.pos[0], p.pos[1])] & 1) && this.map.wallDistAt(p.pos[0], p.pos[1]) < 1.5) continue
@@ -384,20 +398,20 @@ export class Brain {
         else npcFlee = n
       }
     }
-    if (!farmTarget && (this.opts.farm ?? false) && calm && !urgent && gun && hpFrac > 0.5 && t < 330) {
+    if (!farmTarget && (this.opts.farm ?? true) && calm && !urgent && gun && hpFrac > 0.5 && t < 330) {
       let best: any = null, bd = Infinity
       for (const c of obs.crates ?? []) {
         const d = hyp(c.pos[0] - pos[0], c.pos[1] - pos[1])
-        if (d > 70 || (this.badCrates.get(c.id) ?? 0) > 25) continue
+        if (d > 110 || (this.badCrates.get(c.id) ?? 0) > 25) continue
         if (!this.map.los(pos[0], pos[1], muzzleZ, c.pos[0], c.pos[1], c.pos[2] + 1.2)) continue
         if (!zoneSafeFor([c.pos[0], c.pos[1]], 5)) continue
         if (d < bd) { bd = d; best = { pos: c.pos, vel: [0, 0, 0], id: c.id, h: 2.4 } }
       }
-      if (!best && hpFrac > 0.75 && (me.cubes ?? 0) < 10) {
+      if (!best && hpFrac > 0.6 && (me.cubes ?? 0) < 12) {
         for (const n of this.npcs.values()) {
           if (!n.visible) continue
           const d = hyp(n.pos[0] - pos[0], n.pos[1] - pos[1])
-          if (d > 60) continue
+          if (d > 85) continue
           if (!this.map.los(pos[0], pos[1], muzzleZ, n.pos[0], n.pos[1], n.pos[2] + 1.75)) continue
           if (d < bd) { bd = d; best = { pos: n.pos, vel: n.vel, id: n.id, h: 3.5 } }
         }
@@ -448,6 +462,24 @@ export class Brain {
       }
       if (urgent && me.energy > 25) boost = true
       if (!inZoneNow && me.energy > 5) boost = true
+    }
+    // zone first: never stay in a fight outside (or about to be outside) the zone
+    if ((this.opts.zoneFirst ?? true) && (mode === "fight" || mode === "evade") && this.home) {
+      const zd = hyp(pos[0] - zSoon.c[0], pos[1] - zSoon.c[1]) - zSoon.r
+      if (!inZoneNow || zd > -6 || edgeEta < travelTime + 4) {
+        move = this.navMove(pos, this.home, [])
+        if (me.grounded && me.energy > 20) boost = true
+      }
+    }
+    // dodge: when a visible enemy has a line on us, keep changing lateral velocity to spoil leading aim
+    if ((this.opts.jink ?? true) && fightTarget && t - fightTarget.losT < 0.6 && mode !== "fight") {
+      if (t > this.jinkT) {
+        this.jinkT = t + 0.3 + this.rng.next() * 0.5
+        this.jinkDir = this.rng.next() < 0.5 ? -1 : 1
+      }
+      const dx = fightTarget.pos[0] - pos[0], dy = fightTarget.pos[1] - pos[1], L = hyp(dx, dy) || 1
+      const px = (-dy / L) * this.jinkDir, py = (dx / L) * this.jinkDir
+      if (this.map.wallDistAt(pos[0] + px * 4, pos[1] + py * 4) > 3.2) move = [move[0] * 0.7 + px * 0.7, move[1] * 0.7 + py * 0.7]
     }
     // laser threat: an enemy charging a laser at us with line of sight -> duck behind cover if it is close
     if (this.opts.duck ?? true) {
@@ -797,7 +829,7 @@ export class Brain {
     else if (secKind === "mortar") pref = 90
     if (e.weapons.includes("lightning") && secKind !== "lightning") pref = Math.max(pref, 80)
     if (t > this.jinkT) {
-      this.jinkT = t + 0.5 + this.rng.next() * 0.9
+      this.jinkT = t + 0.3 + this.rng.next() * 0.6
       this.jinkDir = this.rng.next() < 0.5 ? -1 : 1
     }
     let radial = clamp((d - pref) / 40, -1, 1)
