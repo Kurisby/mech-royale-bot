@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  rearApproach?: boolean
   finish?: number
   evade1?: number
   roam?: boolean
@@ -693,7 +694,16 @@ export class Brain {
       else if (this.fightPassive && (this.opts.closePassive ?? 0) > 0) {
         // idle squad bots don't shoot back: walk right up so every bullet lands, then stand and unload
         const dP = hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1])
-        if (dP > this.opts.closePassive! || t - fightTarget.losT > 0.6) {
+        // hits on a mech's back do 1.5x: come at a standing idle bot from behind when that's not much of a detour
+        const fa = fightTarget.aim[0], fax = Math.cos(fa), fay = Math.sin(fa)
+        const inRear = (pos[0] - fightTarget.pos[0]) * fax + (pos[1] - fightTarget.pos[1]) * fay < -0.2 * dP
+        const rearPt: P2 = [fightTarget.pos[0] - fax * 24, fightTarget.pos[1] - fay * 24]
+        const still = hyp(fightTarget.vel[0], fightTarget.vel[1]) < 2.5
+        if ((this.opts.rearApproach ?? false) && !inRear && still && dP > 28 && dP < 170 && fightTarget.hp > 500
+          && !(this.map.blocked[this.map.gIdx(rearPt[0], rearPt[1])] & 1) && hyp(rearPt[0] - zNow.c[0], rearPt[1] - zNow.c[1]) < zNow.r - 5) {
+          move = this.navMove(pos, rearPt, [])
+          if (me.grounded && me.energy > 30) boost = true
+        } else if (dP > this.opts.closePassive! || t - fightTarget.losT > 0.6) {
           move = this.navMove(pos, [fightTarget.pos[0], fightTarget.pos[1]], [])
           if (me.grounded && me.energy > 30 && dP > 60) boost = true
         } else move = [0, 0]
