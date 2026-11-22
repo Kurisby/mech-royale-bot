@@ -76,6 +76,7 @@ export interface BrainOpts {
   wprio?: Record<string, number>
   gunDisc?: boolean
   evadeHp?: number
+  reloadAt?: number
   finHp?: number
   lastStand?: number
   dropR?: number
@@ -1163,7 +1164,7 @@ export class Brain {
         this.scanBase += 0.06
         aimYaw = this.openDir(pos) + Math.sin(this.scanBase) * 1.2
       }
-      if (gun && (gun.ammo ?? 12) < (gun.stats?.mag ?? 12) * 0.5 && (gun.reload ?? 0) <= 0 && !target) reload = true
+      if (gun && (gun.ammo ?? 12) < (gun.stats?.mag ?? 12) * (this.opts.reloadAt ?? 0.5) && (gun.reload ?? 0) <= 0 && !target) reload = true
       if (secW?.kind === "laser" && (secW.charge ?? 0) > 0) fire[sec] = true
       if ((this.opts.laserPlus ?? false) && secW?.kind === "laser") {
         // keep a charge ready while a mech is around so the first shot lands the moment it shows up
