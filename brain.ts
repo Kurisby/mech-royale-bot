@@ -114,6 +114,7 @@ export interface BrainOpts {
   zapSave?: boolean
   laserFirst?: number
   gunThru?: boolean
+  prefOrder?: boolean
   upPrioZap?: string[]
   zapApproach?: boolean
   zapCycle?: boolean
@@ -1391,6 +1392,7 @@ export class Brain {
     if (secKind === "lightning") pref = this.opts.zapRange ?? 25
     else if (secKind === "laser") pref = Math.max(pref, this.opts.laserPref ?? 120)
     else if (secKind === "mortar") pref = this.opts.mortarPref ?? 90
+    if ((this.opts.prefOrder ?? false) && (this.opts.gunPref ?? 0) > 0 && secKind === undefined) pref = this.opts.gunPref!
     if (e.weapons.includes("lightning") && secKind !== "lightning") pref = Math.max(pref, this.opts.ltgKeep ?? 80)
     // gun only against a laser: at range its beam always lands and our bullets get dodged, so close to where bullets can't miss
     else if ((this.opts.gunClose ?? 0) > 0 && (secKind === undefined || secKind === "mortar") && e.weapons.includes("laser")) pref = this.opts.gunClose!
@@ -1398,7 +1400,7 @@ export class Brain {
       this.jinkT = t + 0.3 + this.rng.next() * 0.6
       this.jinkDir = this.rng.next() < 0.5 ? -1 : 1
     }
-    if ((this.opts.gunPref ?? 0) > 0 && secKind === undefined) pref = this.opts.gunPref!
+    if (!(this.opts.prefOrder ?? false) && (this.opts.gunPref ?? 0) > 0 && secKind === undefined) pref = this.opts.gunPref!
     let radial = clamp((d - pref) / 40, -1, 1)
     const px = -uy * this.jinkDir, py = ux * this.jinkDir
     let mx = px * 0.85 + ux * radial * 0.7
