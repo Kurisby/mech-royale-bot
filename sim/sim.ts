@@ -299,6 +299,7 @@ export class Sim {
     }
     ;(target as any).taken = ((target as any).taken ?? {}); (target as any).taken[weapon] = ((target as any).taken[weapon] ?? 0) + a
     if (by) { (by as any).dealt = ((by as any).dealt ?? {}); (by as any).dealt[weapon] = ((by as any).dealt[weapon] ?? 0) + a }
+    if (by && weapon === "gun" && by.ctrl.name === "MINE") { const g = ((by as any).gs ??= { shots: 0, shotsH: 0, hits: 0, hitsH: 0 }); g.hits++; if ((target.ctrl as any).active) g.hitsH++ }
     ;(target as any).lastW = weapon
     target.lastDmgT = this.t
     const bearing = from ? Math.atan2(from[1] - target.pos[1], from[0] - target.pos[0]) : null
@@ -406,6 +407,7 @@ export class Sim {
         const yaw = m.aim[0] + this.rng.gauss() * sp, pitch = m.aim[1] + this.rng.gauss() * sp
         const v: V3 = [Math.cos(pitch) * Math.cos(yaw) * w.stats.speed, Math.cos(pitch) * Math.sin(yaw) * w.stats.speed, Math.sin(pitch) * w.stats.speed]
         this.projs.push({ id: this.nextId.proj++, kind: "gun", owner: m.id, pos: muzzle, vel: v, dist: 0, range: w.stats.range, dmg: w.stats.damage * this.dmgMul(m), ttl: 5 })
+        if (m.ctrl.name === "MINE") { const g = ((m as any).gs ??= { shots: 0, shotsH: 0, hits: 0, hitsH: 0 }); const b: any = m.ctrl; const ft = b.lastFightTarget; g.shots++; if (ft != null && ft >= 0 && ft < 16) { (m as any).lastShotAt = ft; if ((this.mechs[ft].ctrl as any).active) g.shotsH++ } else (m as any).lastShotAt = -1 }
         w.ammo!--
         w.cooldown = w.stats.cooldown
         if (w.ammo === 0) w.reload = w.stats.reload
@@ -802,7 +804,7 @@ export class Sim {
       for (const id of ids) this.mechs[id].place = p
       p += ids.length
     }
-    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT, cause: m.alive ? 'alive' : (m as any).lastW, dealt: (m as any).dealt ?? {}, taken: (m as any).taken ?? {}, nAtk: (m as any).nAtk ?? 0, rearDmg: (m as any).rearDmg ?? 0, byDist: (m as any).byDist ?? {}, lz: (m as any).lz ?? { shots: 0, hitMech: 0, full: 0 }, secT: (m as any).secT ?? null, lasT: (m as any).lasT ?? null, k1T: (m as any).k1T ?? null, k1C: (m as any).k1C ?? null, k3T: (m as any).k3T ?? null, k3C: (m as any).k3C ?? null, d1T: (m as any).d1T ?? null }))
+    return this.mechs.map((m) => ({ id: m.id, name: m.ctrl.name, place: m.place, kills: m.kills, cubes: m.cubes, deathT: m.alive ? this.t : m.deathT, cause: m.alive ? 'alive' : (m as any).lastW, dealt: (m as any).dealt ?? {}, taken: (m as any).taken ?? {}, nAtk: (m as any).nAtk ?? 0, rearDmg: (m as any).rearDmg ?? 0, byDist: (m as any).byDist ?? {}, lz: (m as any).lz ?? { shots: 0, hitMech: 0, full: 0 }, dbg: (m.ctrl as any).dbg ?? null, gs: (m as any).gs ?? null, secT: (m as any).secT ?? null, lasT: (m as any).lasT ?? null, k1T: (m as any).k1T ?? null, k1C: (m as any).k1C ?? null, k3T: (m as any).k3T ?? null, k3C: (m as any).k3C ?? null, d1T: (m as any).d1T ?? null }))
   }
 }
 

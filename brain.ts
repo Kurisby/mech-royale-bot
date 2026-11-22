@@ -114,6 +114,15 @@ export interface BrainOpts {
   zapSave?: boolean
   laserFirst?: number
   gunThru?: boolean
+  zapCycle?: boolean
+  laserLust?: boolean
+  mortarPref?: number
+  ltgKeep?: number
+  lagFix?: number
+  laserCover?: boolean
+  kite?: boolean
+  gunPref?: number
+  wantLaser?: number
   zapRange?: number
   pickMem?: boolean
   fightGrab?: number
@@ -211,6 +220,7 @@ export class Brain {
     const act: any = { tick: obs.tick }
     const scale = 1 + (this.cfg.cubes?.size_per_cube ?? 0.05) * (me.cubes ?? 0)
     const muzzleZ = pos[2] + (me.stats?.muzzle_height ?? 7)
+    this.myVel = me.vel ?? [0, 0, 0]
     const eyeZ = pos[2] + (me.stats?.eye_height ?? 8)
 
     // ---- upgrades
@@ -234,6 +244,16 @@ export class Brain {
           this.lastDamageBy = e.by ?? null
           if (e.by != null) this.hitBy.set(e.by, t)
           this.dmgWindow.push({ t, a: e.amount })
+          if (e.weapon === "laser") {
+            const tr = e.by != null ? this.tracks.get(e.by) : undefined
+            const D = this.dbg
+            D.laserHits++
+            if (!tr || t - tr.seenT > 0.35) D.unseen++
+            else if (t - (this.chargeSeenT.get(e.by) ?? -99) > 1.6) D.noChargeSeen++
+            else if (this.label === "duck" || this.label === "hold") D.whileDuck++
+            else D.noCover++
+            if (e.rear) D.rear++
+          }
         }
       } else if (e.type === "kill") {
         this.nKills++
@@ -275,6 +295,7 @@ export class Brain {
       if (m.max_hp != null) tr.maxHp = m.max_hp
       tr.weapons = m.weapons ?? tr.weapons
       tr.charging = !!m.charging
+      if (tr.charging) this.chargeSeenT.set(m.id, t)
       tr.cubes = m.cubes ?? tr.cubes
       tr.seenT = t
       tr.visible = true
@@ -407,7 +428,7 @@ export class Brain {
           let b = hl[0], bs = Infinity
           for (const e of hl) {
             const shooting = ((this.opts.strictHunt ?? false) || (this.opts.shooterFirst ?? false)) && t - (this.hitBy.get(e.id) ?? -99) < 3
-            const sc = dist(e) * 2 + e.hp + (e.id === this.squadTid ? -300 : 0) + (shooting ? -500 : 0) + ((this.opts.laserFirst ?? 0) && e.weapons.includes("laser") ? -this.opts.laserFirst! : 0) + ((this.opts.cookPrio ?? 0) && secW?.kind === "laser" && e.weapons.includes("mortar") ? -this.opts.cookPrio! : 0)
+            const sc = dist(e) * 2 + e.hp + (e.id === this.squadTid ? -300 : 0) + (shooting ? -500 : 0) + ((this.opts.laserFirst ?? 0) && e.weapons.includes("laser") ? -this.opts.laserFirst! : 0) + ((this.opts.wantLaser ?? 0) && secW?.kind !== "laser" && e.weapons.includes("laser") ? -this.opts.wantLaser! * 0.6 : 0) + ((this.opts.cookPrio ?? 0) && secW?.kind === "laser" && e.weapons.includes("mortar") ? -this.opts.cookPrio! : 0)
             if (sc < bs) { bs = sc; b = e }
           }
           // an idle bot we already brought low is a point and cubes: finish it before turning to the hunter
@@ -435,7 +456,7 @@ export class Brain {
             const yawUs = Math.atan2(pos[1] - e.pos[1], pos[0] - e.pos[0])
             const behind = Math.abs(wrap(yawUs - e.aim[0])) > 1.25 && de > 50
             if ((this.opts.rearOnly ?? false) && !behind && e.id !== this.squadTid && e.hp > 400) continue
-            const sc = de * 2 + e.hp + (e.id === this.squadTid ? -400 : 0) + (behind ? -(this.opts.rearBonus ?? 0) : 0) + ((this.opts.cookPrio ?? 0) && secW?.kind === "laser" && e.weapons.includes("mortar") ? -this.opts.cookPrio! : 0)
+            const sc = de * 2 + e.hp + (e.id === this.squadTid ? -400 : 0) + (behind ? -(this.opts.rearBonus ?? 0) : 0) + ((this.opts.wantLaser ?? 0) && secW?.kind !== "laser" && e.weapons.includes("laser") ? -this.opts.wantLaser! : 0) + ((this.opts.cookPrio ?? 0) && secW?.kind === "laser" && e.weapons.includes("mortar") ? -this.opts.cookPrio! : 0)
             if (sc < bs) { bs = sc; b = e }
           }
           const ffT = this.opts.farmFirstT ?? 0
@@ -444,9 +465,13 @@ export class Brain {
           if ((this.opts.armFirst ?? false) && !secW && b && b.hp > 300) {
             for (const p of this.pickMemo.values()) if (hyp(p.pos[0] - pos[0], p.pos[1] - pos[1]) < 140 && p.pos[2] - this.map.surfAt(p.pos[0], p.pos[1]) < 2) { armWait = true; break }
           }
+          if ((this.opts.laserLust ?? false) && secW && secW.kind !== "laser" && b && b.hp > 300) {
+            for (const p of this.pickMemo.values()) if (p.kind === "laser" && hyp(p.pos[0] - pos[0], p.pos[1] - pos[1]) < 150 && p.pos[2] - this.map.surfAt(p.pos[0], p.pos[1]) < 2) { armWait = true; break }
+          }
           if (b && !nearHunter && !farming && !armWait && (hpFrac > (this.opts.passiveHp ?? 0.45) || b.hp < 300)) { fightTarget = b; mode = "fight" }
         }
         this.squadTid = fightTarget ? fightTarget.id : null
+        this.lastFightTarget = fightTarget ? fightTarget.id : -1
         this.fightPassive = !!fightTarget && fightTarget.id >= 0 && !this.hunterIds.has(fightTarget.id)
       } else if (this.opts.hunt) {
         if (d < 260 && (hasLos || t - target.seenT < 5)) { mode = "fight"; fightTarget = target }
@@ -520,12 +545,13 @@ export class Brain {
         const curSec = secW ? WP[secW.kind] ?? 0 : -1
         if (pr <= curSec) continue
         const d = hyp(p.pos[0] - pos[0], p.pos[1] - pos[1])
-        const lootR = mode === "evade" ? 25 : (!secW && (this.opts.lootFar ?? true) ? 160 : 90)
+        const lust = (this.opts.laserLust ?? false) && p.kind === "laser" && secW?.kind !== "laser"
+        const lootR = mode === "evade" ? (lust ? 45 : 25) : lust ? 230 : (!secW && (this.opts.lootFar ?? true) ? 160 : 90)
         if (d > lootR) continue
         if (p.pos[2] - this.map.surfAt(p.pos[0], p.pos[1]) > 2 && Math.abs(p.pos[2] - pos[2]) > 2) continue // on a roof
         if ((this.map.blocked[this.map.gIdx(p.pos[0], p.pos[1])] & 1) && this.map.wallDistAt(p.pos[0], p.pos[1]) < 1.5) continue
         if (!zoneSafeFor([p.pos[0], p.pos[1]], 5) && d > 20) continue
-        const v = pr * 30 - d + (p.id === this.lootId ? 25 : 0)
+        const v = pr * 30 - d + (p.id === this.lootId ? 25 : 0) + (lust ? 110 : 0)
         if (v > bpv) { bpv = v; bestP = p }
       }
       this.lootId = bestP ? bestP.id : null
@@ -757,7 +783,7 @@ export class Brain {
         const WP = this.opts.wprio ?? WEAPON_PRIO
         const cur = secW ? WP[secW.kind] ?? 0 : -1
         const charging = secW?.kind === "laser" && (secW.charge ?? 0) > 0
-        let gp: any = null, gd = secW ? this.opts.fightGrab! * 0.5 : this.opts.fightGrab!
+        let gp: any = null, gd = secW && !(this.opts.laserLust ?? false) ? this.opts.fightGrab! * 0.5 : this.opts.fightGrab!
         if (!charging) for (const p of ((this.opts.pickMem ?? false) ? this.pickMemo.values() : (obs.pickups ?? []))) {
           if ((WP[p.kind] ?? 0) <= cur || W.some((w: any) => w && w.kind === p.kind)) continue
           if ((this.failedTakes.get(p.id) ?? -99) > t - 3) continue
@@ -770,8 +796,11 @@ export class Brain {
           if (gd < (this.cfg.loot?.pickup_radius ?? 4) - 0.3) { takeId = gp.id; dropSlot = secW ? sec : null }
         }
       }
-      const zap = secW?.kind === "lightning" && (this.opts.zapSave ?? false) && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) < 55
+      const zapD = hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1])
+      const zap = secW?.kind === "lightning" && ((this.opts.zapSave ?? false) || (this.opts.zapCycle ?? false)) && zapD < 55
       if (zap) this.boostRest = true // inside arc range: every point of energy goes into the lightning
+      // closing in with lightning: keep half the energy for the arcs
+      if (secW?.kind === "lightning" && (this.opts.zapCycle ?? false) && !zap && me.energy < 55) this.boostRest = true
       if ((this.opts.fightBoost ?? false) && me.grounded && !zap) {
         // strafe at boost speed so leading shots miss; recover energy in between
         if (me.energy < 15) this.boostRest = true
@@ -860,6 +889,7 @@ export class Brain {
     // laser threat: an enemy charging a laser at us with line of sight -> duck behind cover if it is close
     if (this.opts.duck ?? true) {
       const threat = enemies.find((e) => e.charging && t - e.losT < 0.4 && this.isAimingAt(e, pos, 0.1) && hyp(e.pos[0] - pos[0], e.pos[1] - pos[1]) < 290)
+      let ducking = false
       if (threat) {
         const spot = this.quickCover(pos, threat)
         if (spot) {
@@ -867,6 +897,27 @@ export class Brain {
           move = [dx / L, dy / L]
           if (me.grounded && me.energy > 10) boost = true
           this.label = "duck"
+          ducking = true
+        }
+      }
+      if ((this.opts.laserCover ?? false) && !ducking && mode !== "travel" && !urgent) {
+        // a hunter still holding a charge on the far side of our cover: stay put until it lets go (it fires by itself after 2 s)
+        const holder = enemies.find((e) => e.charging && this.hunterIds.has(e.id) && t - e.losT >= 0.1 && t - e.losT < 3 && this.isAimingAt(e, pos, 0.4) && hyp(e.pos[0] - pos[0], e.pos[1] - pos[1]) < 290)
+        if (holder) {
+          if (this.holdId !== holder.id || t - this.holdT > 6) { this.holdId = holder.id; this.holdT = t }
+          if (t - this.holdT < 2.8) { move = [0, 0]; boost = false; this.label = "hold" }
+        } else if (mode === "fight" && fightTarget && !this.fightPassive) {
+          // fighting a laser carrier in the open: drift to where a wall is a step away, so the duck above is possible
+          const lh = enemies.filter((e) => this.hunterIds.has(e.id) && t - e.losT < 1 && e.weapons.includes("laser") && hyp(e.pos[0] - pos[0], e.pos[1] - pos[1]) < 290)
+            .sort((a, b) => hyp(a.pos[0] - pos[0], a.pos[1] - pos[1]) - hyp(b.pos[0] - pos[0], b.pos[1] - pos[1]))[0]
+          if (lh) {
+            if (t - this.driftT > 0.4) { this.driftT = t; this.driftSpot = this.quickCover(pos, lh, true) }
+            const sp0 = this.driftSpot
+            if (sp0) {
+              const dx = sp0[0] - pos[0], dy = sp0[1] - pos[1], L = hyp(dx, dy) || 1
+              if (L > 6) move = [move[0] * 0.45 + (dx / L) * 0.85, move[1] * 0.45 + (dy / L) * 0.85]
+            }
+          }
         }
       }
     }
@@ -971,6 +1022,12 @@ export class Brain {
           const rng = (secW.stats?.range ?? 45) * 0.95
           const cone = ((secW.stats?.cone_deg ?? 30) * Math.PI) / 180 / 2
           const yawTo = Math.atan2(e.pos[1] - pos[1], e.pos[0] - pos[0])
+          if (this.opts.zapCycle ?? false) {
+            // arcs cost energy and energy only comes back after 0.6 s without spending: fire in bursts, then let it refill
+            if (me.energy < 9) this.zapOn = false
+            else if (me.energy > 42 || e.hp < 60 * (me.energy / 3) * 0.8) this.zapOn = true
+            if (hasLos && d < rng && Math.abs(wrap(myYaw - yawTo)) < cone * 0.9 && secW.cooldown <= 0.1 && this.zapOn && me.energy > 3.5) fire[sec] = true
+          } else
           if (hasLos && d < rng && Math.abs(wrap(myYaw - yawTo)) < cone * 0.9 && secW.cooldown <= 0.1 && me.energy > 8) fire[sec] = true
         } else if (k === "mortar") {
           const ms = secW.stats?.speed ?? 72
@@ -1058,10 +1115,11 @@ export class Brain {
     // laser charging halves speed; if evading without laser shot, don't charge
     if (mode === "evade" && secW?.kind === "laser" && fire[sec] && (secW.charge ?? 0) === 0 && hyp(fightTarget!.pos[0] - pos[0], fightTarget!.pos[1] - pos[1]) > 150) fire[sec] = false
 
-    const zapNow = secW?.kind === "lightning" && (this.opts.zapSave ?? false) && mode === "fight" && !!fightTarget && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) < 55
+    const zapNear = secW?.kind === "lightning" && mode === "fight" && !!fightTarget && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) < 55
+    const zapNow = zapNear && (this.opts.zapSave ?? false)
     if ((this.opts.dodge ?? false) && me.grounded && obs.projectiles?.length && !zapNow) {
       const charging = secW?.kind === "laser" && ((secW.charge ?? 0) > 0 || !!fire[sec])
-      const canBoost = me.energy > 8
+      const canBoost = me.energy > 8 && !(zapNear && (this.opts.zapCycle ?? false))
       const sp = (canBoost ? (me.stats?.boost_speed ?? 19.5) : walk) * (charging ? 0.5 : 1)
       const dm = this.dodgeMove(obs, me, pos, move, sp, scale)
       if (dm) { move = dm; if (canBoost) boost = true; this.dodgeN++ }
@@ -1090,13 +1148,13 @@ export class Brain {
     return Math.abs(wrap(a - e.aim[0])) < tol
   }
 
-  quickCover(pos: V3, e: Track): P2 | null {
-    // nearest point within ~12 m that hides us from e (body center and head)
+  quickCover(pos: V3, e: Track, far = false): P2 | null {
+    // nearest point within ~12 m (far: ~30 m) that hides us from e (body center and head)
     const ez = e.pos[2] + 8
     let best: P2 | null = null, bd = Infinity
     for (let k = 0; k < 24; k++) {
       const a = (k / 24) * TAU
-      for (const r of [4, 7, 10, 13]) {
+      for (const r of (far ? [4, 7, 10, 13, 17, 21, 25, 30] : [4, 7, 10, 13])) {
         const x = pos[0] + Math.cos(a) * r, y = pos[1] + Math.sin(a) * r
         if (this.map.blocked[this.map.gIdx(x, y)] & 1) break
         if (!this.map.clearLine(pos[0], pos[1], x, y)) break
@@ -1110,7 +1168,11 @@ export class Brain {
     return best
   }
 
-  leadAim(pos: V3, muzzleZ: number, tp: V3, tv: V3, zoff: number, speed: number): [number, number] {
+  leadAim(pos0: V3, muzzleZ: number, tp0: V3, tv: V3, zoff: number, speed: number): [number, number] {
+    // lagFix: the shot leaves 1-2 ticks after this observation; by then both mechs have moved
+    const lag = speed < 1e8 ? (this.opts.lagFix ?? 0) : 0
+    const pos: V3 = lag ? [pos0[0] + this.myVel[0] * lag, pos0[1] + this.myVel[1] * lag, pos0[2]] : pos0
+    const tp: V3 = lag ? [tp0[0] + tv[0] * lag, tp0[1] + tv[1] * lag, tp0[2]] : tp0
     let tx = tp[0], ty = tp[1], tz = tp[2] + zoff
     const vz = Math.abs(tv[2]) > 0.5 ? tv[2] : 0
     for (let k = 0; k < 4; k++) {
@@ -1325,18 +1387,47 @@ export class Brain {
     let pref = this.opts.prefRange ?? 110
     if (secKind === "lightning") pref = this.opts.zapRange ?? 25
     else if (secKind === "laser") pref = Math.max(pref, this.opts.laserPref ?? 120)
-    else if (secKind === "mortar") pref = 90
-    if (e.weapons.includes("lightning") && secKind !== "lightning") pref = Math.max(pref, 80)
+    else if (secKind === "mortar") pref = this.opts.mortarPref ?? 90
+    if (e.weapons.includes("lightning") && secKind !== "lightning") pref = Math.max(pref, this.opts.ltgKeep ?? 80)
     // gun only against a laser: at range its beam always lands and our bullets get dodged, so close to where bullets can't miss
     else if ((this.opts.gunClose ?? 0) > 0 && (secKind === undefined || secKind === "mortar") && e.weapons.includes("laser")) pref = this.opts.gunClose!
     if (t > this.jinkT) {
       this.jinkT = t + 0.3 + this.rng.next() * 0.6
       this.jinkDir = this.rng.next() < 0.5 ? -1 : 1
     }
+    if ((this.opts.gunPref ?? 0) > 0 && secKind === undefined) pref = this.opts.gunPref!
     let radial = clamp((d - pref) / 40, -1, 1)
     const px = -uy * this.jinkDir, py = ux * this.jinkDir
     let mx = px * 0.85 + ux * radial * 0.7
     let my = py * 0.85 + uy * radial * 0.7
+    if ((this.opts.kite ?? false) && this.hunterIds.has(e.id)) {
+      // hunters keep walking in: inside the range we want, back off along the most open line away from all of them
+      if (d < pref - 12) this.kiting2 = true
+      else if (d > pref + 8) this.kiting2 = false
+      if (this.kiting2) {
+        const hs = [...this.tracks.values()].filter((o) => this.hunterIds.has(o.id) && t - o.seenT < 5 && hyp(o.pos[0] - pos[0], o.pos[1] - pos[1]) < 260)
+        let bx = -ux, by = -uy, bv = -Infinity
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * TAU, cx = Math.cos(a), cy = Math.sin(a)
+          let free = 0
+          for (let r = 4; r <= 48; r += 4) {
+            const x = pos[0] + cx * r, y = pos[1] + cy * r
+            if ((this.map.blocked[this.map.gIdx(x, y)] & 1) || hyp(x - zNow.c[0], y - zNow.c[1]) > zNow.r - 8 || hyp(x - nextC[0], y - nextC[1]) > nextR + 40) break
+            free = r
+          }
+          if (free < 12) continue
+          let v = free * 0.4
+          for (const o of hs) {
+            const ox = pos[0] - o.pos[0], oy = pos[1] - o.pos[1], od = hyp(ox, oy) || 1
+            v += ((cx * ox + cy * oy) / od) * 30 * clamp(200 / od, 0.5, 3)
+          }
+          if (v > bv) { bv = v; bx = cx; by = cy }
+        }
+        mx = bx * 1.0 + px * 0.55
+        my = by * 1.0 + py * 0.55
+        return [mx, my]
+      }
+    }
     // avoid walls: if lateral blocked, flip
     const ahead = this.map.wallDistAt(pos[0] + mx * 4, pos[1] + my * 4)
     if (ahead < 3) { this.jinkDir *= -1; mx = -px * 0.85 + ux * radial * 0.7; my = -py * 0.85 + uy * radial * 0.7 }
@@ -1351,6 +1442,16 @@ export class Brain {
   crateMem = new Map<number, P2>()
   nKills = 0
   kiting = false
+  kiting2 = false
+  zapOn = true
+  lastFightTarget = -1
+  myVel: V3 = [0, 0, 0]
+  dbg = { laserHits: 0, unseen: 0, noChargeSeen: 0, whileDuck: 0, noCover: 0, rear: 0 }
+  chargeSeenT = new Map<number, number>()
+  holdId = -1
+  holdT = -99
+  driftT = -99
+  driftSpot: P2 | null = null
   // can a mech with its eye at (ex,ey,ez) see a point? With treeCover, canopy blocks beyond the 45 m proximity sensors
   vis(ex: number, ey: number, ez: number, x: number, y: number, z: number) {
     if ((this.opts.treeCover ?? false) && hyp(x - ex, y - ey) > 45) return this.map.visLos(ex, ey, ez, x, y, z)
