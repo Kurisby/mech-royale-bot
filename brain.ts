@@ -53,6 +53,7 @@ export interface BrainOpts {
   aggression?: number // 0..1
   farm?: boolean
   hunt?: boolean
+  stealth?: boolean
   homeMode?: string
   duck?: boolean
   coverCheck?: boolean
@@ -161,6 +162,7 @@ export class Brain {
           this.lastDamageT = t
           if (e.bearing != null) this.lastDamageBearing = e.bearing
           this.lastDamageBy = e.by ?? null
+          if (e.by != null) this.hitBy.set(e.by, t)
           this.dmgWindow.push({ t, a: e.amount })
         }
       } else if (e.type === "take_failed") {
@@ -259,6 +261,7 @@ export class Brain {
     const late = alive <= 4 || nextR <= 70
     let mode: "fight" | "evade" | "travel" = "travel"
     let fightTarget: Track | null = null
+    let holdFire = false
     if (target) {
       const d = hyp(target.pos[0] - pos[0], target.pos[1] - pos[1])
       const hasLos = t - target.losT < 0.6
@@ -271,8 +274,13 @@ export class Brain {
       const need = 1.3 - (agg - 0.5)
       const favorable = ratio > need || target.hp < 250
       const byTarget = underFire && this.lastDamageBy === target.id
+      const provoked = (t - (this.hitBy.get(target.id) ?? -99) < 8) || (target.charging && hasLos && this.isAimingAt(target, pos, 0.08)) || (d < 40 && tSees)
       if (this.opts.hunt) {
         if (d < 260 && (hasLos || t - target.seenT < 5)) { mode = "fight"; fightTarget = target }
+      } else if ((this.opts.stealth ?? true) && !late && !provoked) {
+        // not engaged: stay quiet. Only finish off a crippled mech that is close.
+        if (hasLos && target.hp < 300 && d < 140 && hpFrac > 0.5 && !others) { mode = "fight"; fightTarget = target }
+        else if (tSees || (hasLos && d < 120)) { mode = "evade"; fightTarget = target; holdFire = true }
       } else if (late) {
         if (hasLos && d < 240) { mode = "fight"; fightTarget = target }
         else if (favorable && d < 150) { mode = "fight"; fightTarget = target }
@@ -496,7 +504,12 @@ export class Brain {
     const fire: [boolean, boolean] = [false, false]
     let reload = false
     const myYaw = me.aim[0], myPitch = me.aim[1]
-    if (fightTarget && (mode === "fight" || mode === "evade")) {
+    if (fightTarget && holdFire) {
+      // watch it (keeps it in view, front armor toward it) but do not shoot
+      const lead = this.leadAim(pos, muzzleZ, fightTarget.pos, fightTarget.vel, 4.5, 252)
+      aimYaw = lead[0]; aimPitch = lead[1]
+      if (secW?.kind === "laser" && (secW.charge ?? 0) > 0) fire[sec] = true
+    } else if (fightTarget && (mode === "fight" || mode === "evade")) {
       const e = fightTarget
       const eh = 9 * (1 + 0.05 * e.cubes)
       const hasLos = t - e.losT < 0.3
@@ -829,6 +842,7 @@ export class Brain {
   npcDmgT = -99
   npcDmgBy: number | null = null
   evadeHidden = true
+  hitBy = new Map<number, number>()
   badPts: { x: number; y: number; t: number }[] = []
   lootId: number | null = null
   evadeGoal: P2 | null = null

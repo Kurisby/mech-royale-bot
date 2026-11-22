@@ -9,6 +9,7 @@ export function make(kind: string, h: any, m: GameMap): any {
   if (kind === "noduck") return new Brain(h, m, { duck: false })
   if (kind === "center") return new Brain(h, m, { homeMode: "center" })
   if (kind === "edgenofarm") return new Brain(h, m, { farm: false })
+  if (kind === "loud") return new Brain(h, m, { stealth: false })
   if (kind === "nocover") return new Brain(h, m, { coverCheck: false })
   if (kind === "noloot") return new Brain(h, m, { lootFar: false })
   if (kind === "base2") return new Brain(h, m, { coverCheck: false, lootFar: false })
