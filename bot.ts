@@ -19,6 +19,7 @@ const PROFILES: Record<string, any> = {
   closer: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250 },
   loot2: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, farmFirstT: 60, farmFirstCubes: 5 },
   trees: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, treeCover: true },
+  corner: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, treeCover: true, tactical: true },
   loot1: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, treeCover: true, farmFirstT: 60, farmFirstCubes: 5 },
   nocharge: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: false, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250 },
   trees2: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, closePassive: 35, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: false, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, dodge: true, dropPrio: 250, treeCover: true },
@@ -37,7 +38,7 @@ const PROFILES: Record<string, any> = {
   hopper: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, hop: true },
   scanner: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, scan: true, reloadGlance: true, phantom: true },
 }
-const PROFILE = "loot1"
+const PROFILE = "corner"
 const MAP_FALLBACK = new URL("./arena", import.meta.url).pathname
 
 run((hello: Hello) => {

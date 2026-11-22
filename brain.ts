@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  canopyCamp?: boolean
   treeCover?: boolean
   faceThreat?: boolean
   healHide?: number
@@ -1062,11 +1063,11 @@ export class Brain {
     const dc = hyp(pos[0] - c[0], pos[1] - c[1])
     const ar = Math.max(0, Math.min(dc, r - margin))
     const anchor: P2 = dc > 1 ? [c[0] + ((pos[0] - c[0]) / dc) * ar, c[1] + ((pos[1] - c[1]) / dc) * ar] : [c[0], c[1]]
-    const N = 50
+    const N = (this.opts.canopyCamp ?? false) ? 160 : 50
     for (let k = 0; k < N; k++) {
       let x: number, y: number
       if (edge) {
-        const a = this.rng.next() * TAU, rr = Math.sqrt(this.rng.next()) * Math.max(15, Math.min(60, r * 0.4))
+        const a = this.rng.next() * TAU, rr = Math.sqrt(this.rng.next()) * ((this.opts.canopyCamp ?? false) ? Math.max(20, Math.min(130, r * 0.6)) : Math.max(15, Math.min(60, r * 0.4)))
         x = anchor[0] + Math.cos(a) * rr; y = anchor[1] + Math.sin(a) * rr
         if (k === 0) { x = anchor[0]; y = anchor[1] }
         if (hyp(x - c[0], y - c[1]) > r - Math.min(margin, r * 0.5) * 0.6) continue
@@ -1083,9 +1084,10 @@ export class Brain {
       const exp = this.exposure(x, y, z)
       const dist = hyp(x - pos[0], y - pos[1])
       const centr = hyp(x - c[0], y - c[1]) / Math.max(1, r)
-      let v = exp * 120 + dist * (edge ? 0.6 : 0.25) + (edge ? 0 : centr * 60)
+      const camp = this.opts.canopyCamp ?? false
+      let v = exp * (camp ? 400 : 120) + dist * (edge ? 0.6 : 0.25) * (camp ? 0.5 : 1) + (edge ? 0 : centr * 60)
       if (wd > 12) v += 20
-      if ((this.opts.treeCover ?? false) && (m.coverAt(g) & 1)) v -= 15
+      if ((this.opts.treeCover ?? false) && (m.coverAt(g) & 1)) v -= (this.opts.canopyCamp ?? false) ? 60 : 15
       for (const e of enemies) {
         const de = hyp(x - e.pos[0], y - e.pos[1])
         if (de < 120) v += (120 - de) * 0.8
@@ -1397,9 +1399,9 @@ export class Brain {
         }
         if (hyp(x - zNow.c[0], y - zNow.c[1]) > zNow.r - 4) continue
         const z = m.surfAt(x, y) + 4.5
-        const tl = m.los(e.pos[0], e.pos[1], ez, x, y, z)
+        const tl = this.vis(e.pos[0], e.pos[1], ez, x, y, z)
         let nO = 0
-        for (const o of others) if (m.los(o.pos[0], o.pos[1], o.pos[2] + 7, x, y, z)) nO++
+        for (const o of others) if (this.vis(o.pos[0], o.pos[1], o.pos[2] + 7, x, y, z)) nO++
         const de = hyp(x - e.pos[0], y - e.pos[1])
         let v = r * 0.4 + Math.abs(de - pref) * 0.2 + nO * 70
         if (wantShoot) v += tl ? 0 : 30
