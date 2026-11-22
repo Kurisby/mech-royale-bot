@@ -13,8 +13,9 @@ const PROFILES: Record<string, any> = {
   peeker2: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.6, precharge: true, fightBoost: true, peek: true, shooterFirst: true, safeStill: true, laserFix: true },
   dodger2: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.6, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true },
   careful: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true },
+  scanner: { style: "squad", roof: false, farmHard: true, huntGap: 80, rearBonus: 250, stillPassive: true, prowl: true, evadeHp: 0.8, passiveHp: 0.75, evade3: true, evadeAll: true, precharge: true, fightBoost: true, shooterFirst: true, safeStill: true, laserFix: true, scan: true, reloadGlance: true, phantom: true },
 }
-const PROFILE = "careful"
+const PROFILE = "scanner"
 const MAP_FALLBACK = new URL("./arena", import.meta.url).pathname
 
 run((hello: Hello) => {

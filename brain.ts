@@ -92,6 +92,10 @@ export interface BrainOpts {
   safeStill?: boolean
   evade3?: boolean
   evadeAll?: boolean
+  closePassive?: number
+  phantom?: boolean
+  scan?: boolean
+  reloadGlance?: boolean
 }
 
 export class Brain {
@@ -342,7 +346,17 @@ export class Brain {
       if ((this.opts.style ?? "stealth") === "squad") {
         const dist = (e: Track) => hyp(e.pos[0] - pos[0], e.pos[1] - pos[1])
         const hl = enemies.filter((e) => this.hunterIds.has(e.id) && t - e.losT < 0.6 && dist(e) < 240)
-        if (hl.length) {
+        // shot by something we can't see: get out of that line right away (and turn to look)
+        const unseenHit = (this.opts.phantom ?? false) && t - this.lastDamageT < 0.6 && this.lastDamageBy != null
+          && !enemies.some((e) => e.id === this.lastDamageBy && t - e.losT < 0.6)
+        if (unseenHit && !hl.length) {
+          const bx = pos[0] + Math.cos(this.lastDamageBearing) * 90, by = pos[1] + Math.sin(this.lastDamageBearing) * 90
+          this.phantom = { id: -1, pos: [bx, by, pos[2]], vel: [0, 0, 0], aim: [this.lastDamageBearing + Math.PI, 0], hp: 1400, maxHp: 1400, weapons: [], charging: false, cubes: 0, seenT: t, firstT: t, visible: true, losT: t }
+          this.phantomT = t
+        }
+        if (!hl.length && this.phantom && t - this.phantomT < 2.5 && (this.opts.phantom ?? false)) {
+          fightTarget = this.phantom; mode = "evade"
+        } else if (hl.length) {
           let b = hl[0], bs = Infinity
           for (const e of hl) {
             const shooting = ((this.opts.strictHunt ?? false) || (this.opts.shooterFirst ?? false)) && t - (this.hitBy.get(e.id) ?? -99) < 3
@@ -370,7 +384,7 @@ export class Brain {
           if (b && !nearHunter && !farming && (hpFrac > (this.opts.passiveHp ?? 0.45) || b.hp < 300)) { fightTarget = b; mode = "fight" }
         }
         this.squadTid = fightTarget ? fightTarget.id : null
-        this.fightPassive = !!fightTarget && !this.hunterIds.has(fightTarget.id)
+        this.fightPassive = !!fightTarget && fightTarget.id >= 0 && !this.hunterIds.has(fightTarget.id)
       } else if (this.opts.hunt) {
         if (d < 260 && (hasLos || t - target.seenT < 5)) { mode = "fight"; fightTarget = target }
       } else if ((this.opts.style ?? "stealth") === "fighter" && !late) {
@@ -570,6 +584,14 @@ export class Brain {
       const pk = (this.opts.peek ?? false) && !this.fightPassive && t - fightTarget.seenT < 3 && this.peekMove(pos, fightTarget, secW, gun, nextC, nextR, zNow, hpFrac)
       if (pk) { move = this.peekVec; this.peekN++; this.lastPeekT = t }
       else if (t - fightTarget.losT > 1.0) move = this.navMove(pos, [fightTarget.pos[0], fightTarget.pos[1]], [])
+      else if (this.fightPassive && (this.opts.closePassive ?? 0) > 0) {
+        // idle squad bots don't shoot back: walk right up so every bullet lands, then stand and unload
+        const dP = hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1])
+        if (dP > this.opts.closePassive! || t - fightTarget.losT > 0.6) {
+          move = this.navMove(pos, [fightTarget.pos[0], fightTarget.pos[1]], [])
+          if (me.grounded && me.energy > 30 && dP > 60) boost = true
+        } else move = [0, 0]
+      }
       else if (this.fightPassive && (this.opts.stillPassive ?? false) && hyp(fightTarget.pos[0] - pos[0], fightTarget.pos[1] - pos[1]) > 30
         && !((this.opts.safeStill ?? false) && enemies.some((o) => this.hunterIds.has(o.id) && t - o.losT < 1 && hyp(o.pos[0] - pos[0], o.pos[1] - pos[1]) < 230))) move = [0, 0]
       else if (this.opts.tactical) {
@@ -816,6 +838,10 @@ export class Brain {
         }
       }
       if ((gun.ammo ?? 1) === 0) reload = true
+      if ((this.opts.reloadGlance ?? false) && (gun.reload ?? 0) > 0.8 && !(secW?.kind === "laser" && (secW.charge ?? 0) > 0)) {
+        // can't shoot while reloading: look behind for hunters sneaking up, back in time for the next mag
+        aimYaw = lead[0] + Math.PI; aimPitch = 0; fire[gunSlot] = false; if (sec >= 0) fire[sec] = false
+      }
     } else {
       // no target: look where threats are likely
       aimPitch = 0
@@ -825,7 +851,11 @@ export class Brain {
       else if (recentTrack && t - recentTrack.seenT < 6) aimYaw = Math.atan2(recentTrack.pos[1] - pos[1], recentTrack.pos[0] - pos[0])
       else if (recentLoud && recentLoud.dist !== "far") aimYaw = recentLoud.bearing
       else if (hyp(move[0], move[1]) > 0.3) {
-        aimYaw = Math.atan2(move[1], move[0]) + Math.sin(t * 1.3) * 0.7
+        if (this.opts.scan ?? false) aimYaw = Math.atan2(move[1], move[0]) + Math.sin(t * 2.4) * 1.5
+        else aimYaw = Math.atan2(move[1], move[0]) + Math.sin(t * 1.3) * 0.7
+      } else if (this.opts.scan ?? false) {
+        // standing: slow full turns so nothing walks up from behind
+        aimYaw = t * 3.0
       } else {
         // camping: sweep the open directions
         this.scanBase += 0.06
@@ -852,6 +882,11 @@ export class Brain {
     act.boost = me.grounded ? (boost && ml > 0.2) : (boost && this.jetOk)
     act.jump = jump
     act.aim = [wrap(aimYaw), clamp(aimPitch, -0.69, 1.29)]
+    if (fightTarget && fightTarget.id === -1) {
+      // phantom: only a guess where the shooter is, so look but don't waste shots (keep a laser charge held)
+      fire[gunSlot] = false
+      if (sec >= 0) fire[sec] = secW?.kind === "laser" && (secW.charge ?? 0) > 0
+    }
     act.fire = fire
     if (reload) act.reload = true
     if (takeId != null) { act.take = takeId; if (dropSlot != null && dropSlot >= 0) act.drop = dropSlot }
@@ -1220,6 +1255,8 @@ export class Brain {
   tacWant = true
   huntEv = new Map<number, number>()
   squadTid: number | null = null
+  phantom: Track | null = null
+  phantomT = -99
   killSpots: { p: P2; t: number }[] = []
   boostRest = false
   passiveSeen = new Map<number, { p: P2; t: number }>()
