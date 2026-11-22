@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  roam?: boolean
   cubeCap?: number
   kiteT?: number
   kiteCubes?: number
@@ -609,11 +610,13 @@ export class Brain {
     }
     // before the first kill: roam the zone for crates and drones instead of waiting at home
     const vacuum = (this.opts.kiteT ?? 0) > 0 && this.nKills === 0 && t < this.opts.kiteT! && (me.cubes ?? 0) < (this.opts.kiteCubes ?? 10)
-    if (vacuum && mode === "travel" && !urgent && (goalWhy === "home" || goalWhy === "prowl") && !npcFlee) {
+    const roam = (this.opts.roam ?? false) && calm && hpFrac > 0.75 && !late && goalWhy === "home"
+    if ((vacuum || roam) && mode === "travel" && !urgent && (goalWhy === "home" || goalWhy === "prowl") && !npcFlee) {
       if (t - this.visitT > 4) { this.visitT = t; this.visited.push([pos[0], pos[1]]); if (this.visited.length > 40) this.visited.shift() }
       // crates we saw earlier and have not destroyed
       let cb: P2 | null = null, cd = Infinity
       for (const [id, c] of this.crateMem) {
+        if ((me.cubes ?? 0) >= (this.opts.cubeCap ?? 999)) break
         const d = hyp(c[0] - pos[0], c[1] - pos[1])
         if (d < 12 && !(obs.crates ?? []).some((x: any) => x.id === id)) { this.crateMem.delete(id); continue }
         if (d < cd && zoneSafeFor(c, 5)) { cd = d; cb = c }
