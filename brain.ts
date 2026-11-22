@@ -76,6 +76,8 @@ export interface BrainOpts {
   wprio?: Record<string, number>
   gunDisc?: boolean
   evadeHp?: number
+  finHp?: number
+  lastStand?: number
   dropR?: number
   strictHunt?: boolean
   passiveR?: number
@@ -448,8 +450,12 @@ export class Brain {
           const fin = (this.opts.finish ?? 0) > 0 && this.squadTid != null && !this.hunterIds.has(this.squadTid) ? enemies.find((e) => e.id === this.squadTid) : undefined
           if (fin && fin.hp < this.opts.finish! && t - fin.losT < 0.6 && dist(fin) < 90 && hpFrac > 0.4) b = fin
           fightTarget = b; mode = "fight"
-          if (hpFrac < (this.opts.evadeHp ?? 0.3) && hl.length >= 2 && b.hp > 400) mode = "evade"
-          if ((this.opts.evade3 ?? false) && hl.length >= 3 && b.hp > 400) mode = "evade"
+          const finHp = this.opts.finHp ?? 400
+          // nearly dead with several hunters on us: running no longer buys a heal, so spend what is left on the weakest one
+          const stand = hpFrac < (this.opts.lastStand ?? 0) && hl.length >= 2
+          if (stand) { let w = b; for (const e of hl) if (e.hp + dist(e) * 3 < w.hp + dist(w) * 3) w = e; b = w; fightTarget = b }
+          if (!stand && hpFrac < (this.opts.evadeHp ?? 0.3) && hl.length >= 2 && b.hp > finHp) mode = "evade"
+          if (!stand && (this.opts.evade3 ?? false) && hl.length >= 3 && b.hp > finHp) mode = "evade"
           if ((this.opts.evade2 ?? false) && hl.length >= 2 && b.hp > 500 && hpFrac < 0.95) mode = "evade"
           // losing a duel badly: break away and heal instead of trading to the death
           if ((this.opts.evade1 ?? 0) > 0 && hl.length === 1 && hpFrac < this.opts.evade1! && b.hp > me.hp * 1.4) mode = "evade"
@@ -528,6 +534,17 @@ export class Brain {
       if (!this.evadeHidden && t - fightTarget.losT < 0.6 && d < 230) mode = "fight"
     }
     if (mode !== "travel") this.lastCombatT = t
+    {
+      const D: any = this.dbg
+      const bk = ((D.byK ??= {})[Math.min(this.nKills, 7)] ??= { T: 0, fight: 0, evade: 0, travel: 0, hl: 0, hn: 0, taken: 0, dealt: 0, hp: 0 })
+      bk.T += 0.1; bk[mode] += 0.1; bk.hp += hpFrac * 0.1
+      bk.hl += 0.1 * enemies.filter((e) => this.hunterIds.has(e.id) && t - e.losT < 0.6).length
+      bk.hn += 0.1 * [...this.tracks.values()].filter((e) => this.hunterIds.has(e.id) && t - e.seenT < 5).length
+      for (const e of obs.events ?? []) {
+        if (e.type === "damaged" && e.weapon !== "zone") bk.taken += e.amount ?? 0
+        if (e.type === "hit" && e.target < 100) bk.dealt += e.amount ?? 0
+      }
+    }
 
     // ---- movement goal
     let goal: P2 | null = this.home
@@ -1184,6 +1201,7 @@ export class Brain {
     act.fire = fire
     if (reload) act.reload = true
     if (takeId != null) { act.take = takeId; if (dropSlot != null && dropSlot >= 0) act.drop = dropSlot }
+    { const D: any = this.dbg; const g = (D.why ??= {}); const kk = mode === "travel" ? goalWhy + (farmTarget ? "+shoot" : "") + (urgent ? " URG" : "") : mode; g[kk] = (g[kk] ?? 0) + 0.1; if (mode === "travel") { const h = (D.trHp ??= { hi: 0, mid: 0, lo: 0 }); h[hpFrac > 0.9 ? "hi" : hpFrac > 0.6 ? "mid" : "lo"] += 0.1 } }
     this.label = `${mode} ${goalWhy}${urgent ? " URG" : ""}${fightTarget ? " t" + fightTarget.id : ""}${t - this.lastPeekT < 0.15 ? (this.peekWant ? " PKout" : " PKhide") : ""}`
     this.lastPos = pos
     return act
