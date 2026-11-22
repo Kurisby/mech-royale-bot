@@ -325,11 +325,13 @@ export class Brain {
         const d = hyp(p.pos[0] - pos[0], p.pos[1] - pos[1])
         const lootR = mode === "evade" ? 25 : (!secW && (this.opts.lootFar ?? false) ? 160 : 90)
         if (d > lootR) continue
-        if (Math.abs(p.pos[2] - pos[2]) > 3.5 && d < 8) continue // on a roof
+        if (p.pos[2] - this.map.surfAt(p.pos[0], p.pos[1]) > 2 && Math.abs(p.pos[2] - pos[2]) > 2) continue // on a roof
+        if ((this.map.blocked[this.map.gIdx(p.pos[0], p.pos[1])] & 1) && this.map.wallDistAt(p.pos[0], p.pos[1]) < 1.5) continue
         if (!zoneSafeFor([p.pos[0], p.pos[1]], 5) && d > 20) continue
-        const v = pr * 30 - d
+        const v = pr * 30 - d + (p.id === this.lootId ? 25 : 0)
         if (v > bpv) { bpv = v; bestP = p }
       }
+      this.lootId = bestP ? bestP.id : null
       if (bestP) {
         goal = [bestP.pos[0], bestP.pos[1]]
         goalWhy = "loot " + bestP.kind
@@ -344,6 +346,7 @@ export class Brain {
         for (const c of obs.cubes ?? []) {
           const d = hyp(c.pos[0] - pos[0], c.pos[1] - pos[1])
           if (Math.abs(c.pos[2] - pos[2]) > 3.5) continue
+          if (c.pos[2] - this.map.surfAt(c.pos[0], c.pos[1]) > 2) continue
           if (d < bcd && d < (calm ? 80 : 30) && zoneSafeFor([c.pos[0], c.pos[1]], 3)) { bcd = d; bc = c }
         }
         if (bc) { goal = [bc.pos[0], bc.pos[1]]; goalWhy = "cube" }
@@ -467,6 +470,11 @@ export class Brain {
         if (moved < 2.5 && t > 1) {
           this.stuckT += 1
           this.unstickUntil = t + 0.8
+          if (this.stuckT >= 2) {
+            const ml0 = hyp(move[0], move[1]) || 1
+            this.badPts.push({ x: pos[0] + (move[0] / ml0) * 3, y: pos[1] + (move[1] / ml0) * 3, t })
+            if (this.badPts.length > 30) this.badPts.shift()
+          }
           const a = this.rng.next() * TAU
           this.unstickDir = [Math.cos(a), Math.sin(a)]
           this.pathT = -99
@@ -602,7 +610,7 @@ export class Brain {
       const a = (k / 24) * TAU
       for (const r of [4, 7, 10, 13]) {
         const x = pos[0] + Math.cos(a) * r, y = pos[1] + Math.sin(a) * r
-        if (this.map.blocked[this.map.gIdx(x, y)]) break
+        if (this.map.blocked[this.map.gIdx(x, y)] & 1) break
         if (!this.map.clearLine(pos[0], pos[1], x, y)) break
         const z = this.map.surfAt(x, y)
         if (!this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 4.5) && !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 9)) {
@@ -699,7 +707,7 @@ export class Brain {
         if (k === 0) { x = c[0]; y = c[1] }
       }
       const g = m.gIdx(x, y)
-      if (m.blocked[g]) continue
+      if (m.blocked[g] & 1) continue
       const z = m.surfAt(x, y)
       const wd = m.wallDistAt(x, y)
       const exp = this.exposure(x, y, z)
@@ -722,15 +730,17 @@ export class Brain {
     const m = this.map
     const gchanged = !this.pathGoal || hyp(this.pathGoal[0] - goal[0], this.pathGoal[1] - goal[1]) > 4
     if (gchanged || t - this.pathT > 3 || !this.path) {
-      if (m.clearLine(pos[0], pos[1], goal[0], goal[1]) && hyp(goal[0] - pos[0], goal[1] - pos[1]) < 60) {
+      if (this.stuckT < 2 && m.clearLine(pos[0], pos[1], goal[0], goal[1]) && hyp(goal[0] - pos[0], goal[1] - pos[1]) < 60) {
         this.path = [goal]
       } else {
         const es = enemies.filter((e) => t - e.seenT < 5).map((e) => e.pos)
         const ns = [...this.npcs.values()].map((n) => n.pos)
-        const cost = es.length || ns.length
+        const bad = this.badPts.filter((b) => t - b.t < 90)
+        const cost = es.length || ns.length || bad.length
           ? (g: number) => {
               const p = m.gPos(g)
               let c = 0
+              for (const b of bad) if (Math.abs(p[0] - b.x) < 5 && Math.abs(p[1] - b.y) < 5) c += 200
               for (const e of es) {
                 const d = hyp(p[0] - e[0], p[1] - e[1])
                 if (d < 100) c += (100 - d) * 0.05
@@ -799,7 +809,7 @@ export class Brain {
         const r = 10 + this.rng.next() * 45
         const x = pos[0] + Math.cos(a) * r, y = pos[1] + Math.sin(a) * r
         const g = this.map.gIdx(x, y)
-        if (this.map.blocked[g]) continue
+        if (this.map.blocked[g] & 1) continue
         const z = this.map.surfAt(x, y)
         const hidden = !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 6) && !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 9)
         const de = hyp(x - e.pos[0], y - e.pos[1])
@@ -819,6 +829,8 @@ export class Brain {
   npcDmgT = -99
   npcDmgBy: number | null = null
   evadeHidden = true
+  badPts: { x: number; y: number; t: number }[] = []
+  lootId: number | null = null
   evadeGoal: P2 | null = null
   evadeT = -99
 }

@@ -11,8 +11,8 @@ const slot = args.slot != null ? +args.slot : s % 16
 let brain: any
 for (let i = 0; i < 16; i++) {
   if (i === slot) facs.push((h, m) => { brain = V.make(args.mine ?? "main", h, m); brain.name = "MINE"; return brain })
-  else if (i % 2 === 0) facs.push((h, m) => new Rusher(h, m))
-  else facs.push((h, m) => { const b: any = V.make("hunter", h, m); b.name = "opp"; return b })
+  else if (args.rush && i % 2 === 0) facs.push((h, m) => new Rusher(h, m))
+  else facs.push((h, m) => { const b: any = V.make(args.opp ?? "pro", h, m); b.name = "opp"; return b })
 }
 const sim = new Sim(map, cfg, s * 1000 + 17, facs)
 const me = sim.mechs[slot]

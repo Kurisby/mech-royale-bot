@@ -172,7 +172,8 @@ export class Sim {
       const px = k === 8 ? x : x + Math.cos((k * TAU) / 8) * r
       const py = k === 8 ? y : y + Math.sin((k * TAU) / 8) * r
       const f = this.floorAt(px, py, z, h)
-      if (f > z + 1.2) return false
+      if (f === Infinity) return false
+      if (k === 8 ? f > z + 1.2 : f > z + 1.2 + r * 1.1) return false
     }
     if (x < this.map.minX + 2 || y < this.map.minY + 2 || x > this.map.minX + this.map.nx - 3 || y > this.map.minY + this.map.ny - 3) return false
     return true

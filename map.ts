@@ -13,7 +13,8 @@ export class GameMap {
   pTop: Float32Array // highest prism top covering the cell (-Infinity if none)
   surf: Float32Array // ground-level walking surface
   wall: Uint8Array // 1 = vertical obstacle for a ground-level mech
-  wallDist: Float32Array // distance (m) to nearest wall cell
+  wallDist: Float32Array // distance (m) to nearest hard wall cell
+  cliffDist: Float32Array
   // nav grid (2 m)
   G = 2
   gnx: number
@@ -69,37 +70,48 @@ export class GameMap {
       }
     }
     for (let k = 0; k < n; k++) if (deck[k] > -Infinity && !this.wall[k]) this.surf[k] = Math.max(this.surf[k], deck[k])
-    // cliffs: a vertex whose neighbor is > 1.6 m higher is treated as a wall edge
-    for (let j = 1; j < this.ny - 1; j++)
-      for (let i = 1; i < this.nx - 1; i++) {
-        const k = j * this.nx + i
-        if (this.wall[k]) continue
-        const s = this.surf[k]
-        if (this.surf[k + 1] - s > 1.6 || this.surf[k - 1] - s > 1.6 || this.surf[k + this.nx] - s > 1.6 || this.surf[k - this.nx] - s > 1.6) this.wall[k] = 2
-      }
+    // cliffs: steeper than walkable over 1 m or 2 m -> treat as wall (both sides)
+    {
+      const nx = this.nx
+      const cliff = new Uint8Array(n)
+      for (let j = 2; j < this.ny - 2; j++)
+        for (let i = 2; i < this.nx - 2; i++) {
+          const k = j * nx + i
+          const s0 = this.surf[k]
+          for (const [di, dj, lim] of [[1, 0, 1.25], [0, 1, 1.25], [1, 1, 1.7], [1, -1, 1.7], [2, 0, 2.3], [0, 2, 2.3]] as const) {
+            const k2 = (j + dj) * nx + (i + di)
+            const dz = this.surf[k2] - s0
+            if (dz > lim) cliff[k] = 1
+            else if (-dz > lim) cliff[k2] = 1
+          }
+        }
+      for (let k = 0; k < n; k++) if (cliff[k] && !this.wall[k]) this.wall[k] = 2
+    }
     // map edge walls
     for (let i = 0; i < this.nx; i++) { this.wall[i] = 1; this.wall[(this.ny - 1) * this.nx + i] = 1 }
     for (let j = 0; j < this.ny; j++) { this.wall[j * this.nx] = 1; this.wall[j * this.nx + this.nx - 1] = 1 }
-    // chamfer distance transform
-    const d = new Float32Array(n)
-    for (let k = 0; k < n; k++) d[k] = this.wall[k] ? 0 : 1e9
-    const nx = this.nx, ny = this.ny, D = Math.SQRT2
-    for (let j = 1; j < ny; j++)
-      for (let i = 1; i < nx - 1; i++) {
-        const k = j * nx + i
-        let v = d[k]
-        v = Math.min(v, d[k - 1] + 1, d[k - nx] + 1, d[k - nx - 1] + D, d[k - nx + 1] + D)
-        d[k] = v
-      }
-    for (let j = ny - 2; j >= 0; j--)
-      for (let i = nx - 2; i >= 1; i--) {
-        const k = j * nx + i
-        let v = d[k]
-        v = Math.min(v, d[k + 1] + 1, d[k + nx] + 1, d[k + nx + 1] + D, d[k + nx - 1] + D)
-        d[k] = v
-      }
+    const nx = this.nx, ny = this.ny
+    const dt = (pred: (k: number) => boolean) => {
+      const d = new Float32Array(n)
+      const D = Math.SQRT2
+      for (let k = 0; k < n; k++) d[k] = pred(k) ? 0 : 1e9
+      for (let j = 1; j < ny; j++)
+        for (let i = 1; i < nx - 1; i++) {
+          const k = j * nx + i
+          d[k] = Math.min(d[k], d[k - 1] + 1, d[k - nx] + 1, d[k - nx - 1] + D, d[k - nx + 1] + D)
+        }
+      for (let j = ny - 2; j >= 0; j--)
+        for (let i = nx - 2; i >= 1; i--) {
+          const k = j * nx + i
+          d[k] = Math.min(d[k], d[k + 1] + 1, d[k + nx] + 1, d[k + nx + 1] + D, d[k + nx - 1] + D)
+        }
+      return d
+    }
+    const d = dt((k) => this.wall[k] === 1)
+    const dc = dt((k) => this.wall[k] === 2)
     this.wallDist = d
-    // nav grid
+    this.cliffDist = dc
+    // nav grid: bit 1 = hard wall nearby, bit 2 = cliff nearby (passable downhill)
     this.gnx = Math.floor(nx / this.G)
     this.gny = Math.floor(ny / this.G)
     const gn = this.gnx * this.gny
@@ -109,7 +121,7 @@ export class GameMap {
       for (let gi = 0; gi < this.gnx; gi++) {
         const k = gj * this.G * nx + gi * this.G
         this.gsurf[gj * this.gnx + gi] = this.surf[k]
-        this.blocked[gj * this.gnx + gi] = d[k] < 3.0 ? 1 : 0
+        this.blocked[gj * this.gnx + gi] = (d[k] < 3.0 ? 1 : 0) | (dc[k] < 2.0 ? 2 : 0)
       }
     // trees (dense crowns) for vision heuristics
     this.treeDense = new Uint8Array(n)
@@ -172,7 +184,7 @@ export class GameMap {
   /** nearest unblocked nav cell to (x,y) within radius r cells */
   nearestFree(x: number, y: number, r = 12): number {
     const g0 = this.gIdx(x, y)
-    if (!this.blocked[g0]) return g0
+    if (!(this.blocked[g0] & 1)) return g0
     const gi0 = g0 % this.gnx, gj0 = Math.floor(g0 / this.gnx)
     let best = -1, bd = Infinity
     for (let dj = -r; dj <= r; dj++)
@@ -180,7 +192,7 @@ export class GameMap {
         const gi = gi0 + di, gj = gj0 + dj
         if (gi < 0 || gj < 0 || gi >= this.gnx || gj >= this.gny) continue
         const g = gj * this.gnx + gi
-        if (this.blocked[g]) continue
+        if (this.blocked[g] & 1) continue
         const dd = di * di + dj * dj
         if (dd < bd) { bd = dd; best = g }
       }
@@ -232,8 +244,10 @@ export class GameMap {
         const ni = ci + DI[d], nj = cj + DJ[d]
         if (ni < 0 || nj < 0 || ni >= W || nj >= this.gny) continue
         const nb = nj * W + ni
-        if (this.blocked[nb] || closed[nb] === st) continue
-        if (d >= 4 && (this.blocked[cj * W + ni] || this.blocked[nj * W + ci])) continue
+        const bn = this.blocked[nb]
+        if ((bn & 1) || closed[nb] === st) continue
+        if ((bn & 2) && this.gsurf[nb] > cs + 0.3) continue
+        if (d >= 4 && ((this.blocked[cj * W + ni] & 1) || (this.blocked[nj * W + ci] & 1))) continue
         if (this.gsurf[nb] - cs > 1.6) continue
         let cost = (d < 4 ? 1 : Math.SQRT2) * this.G
         if (extraCost) cost += extraCost(nb)
