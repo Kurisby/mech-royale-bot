@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  dropPrio?: number
   dodgeStopPen?: number
   hop?: boolean
   reloadGlance?: boolean
@@ -509,6 +510,19 @@ export class Brain {
       }
     }
 
+    // supply drop first: full HP, full energy and 3 cubes for 4 s alone in the ring
+    if ((this.opts.dropPrio ?? 0) > 0 && !urgent && mode === "travel" && obs.drops?.length) {
+      for (const dr of obs.drops) {
+        const d = hyp(dr.pos[0] - pos[0], dr.pos[1] - pos[1])
+        if (d > this.opts.dropPrio!) continue
+        if (dr.lands_in > d / 15 + 5) continue
+        if (dr.holder != null && dr.holder !== this.me) continue
+        const contested = [...this.tracks.values()].some((e) => this.hunterIds.has(e.id) && t - e.seenT < 4 && hyp(e.pos[0] - dr.pos[0], e.pos[1] - dr.pos[1]) < 60)
+        if (contested && hpFrac < 0.6) continue
+        goal = [dr.pos[0], dr.pos[1]]; goalWhy = "drop"; takeId = null
+        break
+      }
+    }
     // ---- crate / npc farming target (shoot) when calm
     let farmTarget: { pos: V3; vel: V3; id: number; h: number } | null = null
     let npcFlee: Track | null = null
