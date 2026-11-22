@@ -23,6 +23,10 @@ export class GameMap {
   blocked: Uint8Array
   gsurf: Float32Array
   treeDense: Uint8Array // 1 where a tree crown is (vision only)
+  crownLo: Float32Array // canopy vertical extent per cell (lo > hi = no crown)
+  crownHi: Float32Array
+  canopyDensity = 0.35
+  canopyBlockT = 0.25
 
   constructor(dir: string) {
     const world = JSON.parse(readFileSync(dir + "/v2/world.json", "utf8"))
@@ -150,6 +154,28 @@ export class GameMap {
           if (i >= 0 && j >= 0 && i < nx && j < ny) this.treeDense[(j | 0) * nx + (i | 0)] = 1
         }
     }
+    // canopy as ellipsoids: crown from z+crownBase to z+height, radius crownR around (crownX, crownY)
+    this.crownLo = new Float32Array(n).fill(1e9)
+    this.crownHi = new Float32Array(n).fill(-1e9)
+    const iz = tf.indexOf("z"), ih = tf.indexOf("height"), ib = tf.indexOf("crownBase")
+    if (world.rules?.canopyDensity != null) this.canopyDensity = world.rules.canopyDensity
+    if (world.rules?.canopyBlockT != null) this.canopyBlockT = world.rules.canopyBlockT
+    for (let q = 0; q + F <= td.length; q += F) {
+      const cx = td[q + ix], cy = td[q + iy], R = td[q + ir]
+      const z0 = td[q + iz], lo0 = z0 + td[q + ib], hi0 = z0 + td[q + ih]
+      if (!(R > 0.5) || !(hi0 > lo0)) continue
+      const zc = (lo0 + hi0) / 2, H = (hi0 - lo0) / 2
+      for (let y = Math.floor(cy - R); y <= cy + R + 1; y++)
+        for (let x = Math.floor(cx - R); x <= cx + R + 1; x++) {
+          const rho2 = ((x - cx) ** 2 + (y - cy) ** 2) / (R * R)
+          if (rho2 > 1) continue
+          const i = Math.round(x - this.minX), j = Math.round(y - this.minY)
+          if (i < 0 || j < 0 || i >= nx || j >= ny) continue
+          const h = H * Math.sqrt(1 - rho2), k = j * nx + i
+          if (zc - h < this.crownLo[k]) this.crownLo[k] = zc - h
+          if (zc + h > this.crownHi[k]) this.crownHi[k] = zc + h
+        }
+    }
   }
 
   idx(x: number, y: number) {
@@ -179,6 +205,44 @@ export class GameMap {
       if (this.solid(ax + dx * f, ay + dy * f, az + dz * f)) return false
     }
     return true
+  }
+
+  /** vision line: buildings block, and so does enough canopy (transmission exp(-density*len) below blockT) */
+  visLos(ax: number, ay: number, az: number, bx: number, by: number, bz: number) {
+    const dx = bx - ax, dy = by - ay, dz = bz - az
+    const L = Math.hypot(dx, dy)
+    const n = Math.max(1, Math.ceil(L))
+    const seg = Math.hypot(L, dz) / n
+    const maxLen = Math.log(1 / this.canopyBlockT) / this.canopyDensity
+    let crown = 0
+    for (let s = 1; s < n; s++) {
+      const f = s / n
+      const x = ax + dx * f, y = ay + dy * f, z = az + dz * f
+      const k = this.idx(x, y)
+      if (z < this.ground[k] - 0.2 || (z >= this.pBase[k] && z <= this.pTop[k])) return false
+      if (z >= this.crownLo[k] && z <= this.crownHi[k]) { crown += seg; if (crown >= maxLen) return false }
+    }
+    return true
+  }
+  gCover: Uint8Array | null = null
+  /** per nav cell: 1 if canopy covers mech height there, 2 if a wall is within 6 m (cached) */
+  coverAt(g: number) {
+    if (!this.gCover) {
+      this.gCover = new Uint8Array(this.gnx * this.gny)
+      for (let q = 0; q < this.gCover.length; q++) {
+        const p = this.gPos(q), z = this.gsurf[q], k = this.idx(p[0], p[1])
+        let c = 0
+        if (z + 9 >= this.crownLo[k] && z + 3 <= this.crownHi[k]) c |= 1
+        if (this.wallDist[k] < 6) c |= 2
+        this.gCover[q] = c
+      }
+    }
+    return this.gCover[g]
+  }
+  /** meters of canopy right above/around a spot at mech height (0 = open) */
+  canopyAt(x: number, y: number, z: number) {
+    const k = this.idx(x, y)
+    return z + 9 >= this.crownLo[k] && z + 2 <= this.crownHi[k] ? 1 : 0
   }
 
   // ---- nav grid helpers

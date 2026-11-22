@@ -96,6 +96,7 @@ export interface BrainOpts {
   phantom?: boolean
   scan?: boolean
   dodge?: boolean
+  treeCover?: boolean
   faceThreat?: boolean
   healHide?: number
   zapSave?: boolean
@@ -151,6 +152,7 @@ export class Brain {
     this.opts = opts
     this.name = opts.name ?? "survivor"
     this.map = map
+    if (opts.treeCover) map.coverAt(0) // build the cover grid now (hello budget), not mid-match
     this.cfg = hello.config
     this.rng = new Rng(hello.seed ?? 1)
     this.me = hello.slot
@@ -1033,6 +1035,13 @@ export class Brain {
   exposure(x: number, y: number, z: number): number {
     // fraction of 16 directions with open sight beyond 60 m at mech-eye height
     let open = 0
+    if (this.opts.treeCover ?? false) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * TAU
+        if (this.map.visLos(x, y, z + 6, x + Math.cos(a) * 90, y + Math.sin(a) * 90, z + 6)) open++
+      }
+      return open / 16
+    }
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * TAU
       let ok = true
@@ -1076,6 +1085,7 @@ export class Brain {
       const centr = hyp(x - c[0], y - c[1]) / Math.max(1, r)
       let v = exp * 120 + dist * (edge ? 0.6 : 0.25) + (edge ? 0 : centr * 60)
       if (wd > 12) v += 20
+      if ((this.opts.treeCover ?? false) && (m.coverAt(g) & 1)) v -= 15
       for (const e of enemies) {
         const de = hyp(x - e.pos[0], y - e.pos[1])
         if (de < 120) v += (120 - de) * 0.8
@@ -1141,10 +1151,12 @@ export class Brain {
         const es = enemies.filter((e) => t - e.seenT < 5).map((e) => e.pos)
         const ns = [...this.npcs.values()].map((n) => n.pos)
         const bad = this.badPts.filter((b) => t - b.t < 90)
-        const cost = es.length || ns.length || bad.length
+        const tc = this.opts.treeCover ?? false
+        const cost = es.length || ns.length || bad.length || tc
           ? (g: number) => {
               const p = m.gPos(g)
               let c = 0
+              if (tc) { const cv = m.coverAt(g); c += cv & 1 ? 0 : cv & 2 ? 0.5 : 1.4 }
               for (const b of bad) if (Math.abs(p[0] - b.x) < 5 && Math.abs(p[1] - b.y) < 5) c += 200
               for (const e of es) {
                 const d = hyp(p[0] - e[0], p[1] - e[1])
@@ -1203,6 +1215,11 @@ export class Brain {
   }
 
   dodgeN = 0
+  // can a mech with its eye at (ex,ey,ez) see a point? With treeCover, canopy blocks beyond the 45 m proximity sensors
+  vis(ex: number, ey: number, ez: number, x: number, y: number, z: number) {
+    if ((this.opts.treeCover ?? false) && hyp(x - ex, y - ey) > 45) return this.map.visLos(ex, ey, ez, x, y, z)
+    return this.map.los(ex, ey, ez, x, y, z)
+  }
   // bearing to the most recently seen hunter (within maxAge s and 260 m), or null
   lastHunterDir(pos: V3, maxAge: number): number | null {
     let b: Track | null = null
@@ -1231,7 +1248,7 @@ export class Brain {
         if (hyp(x - nextC[0], y - nextC[1]) > nextR - 10) continue
         const z = m.surfAt(x, y)
         let seen = 0
-        for (const e of threats) if (m.los(e.pos[0], e.pos[1], e.pos[2] + 8, x, y, z + 4.5) || m.los(e.pos[0], e.pos[1], e.pos[2] + 8, x, y, z + 8.5)) seen++
+        for (const e of threats) if (this.vis(e.pos[0], e.pos[1], e.pos[2] + 8, x, y, z + 4.5) || this.vis(e.pos[0], e.pos[1], e.pos[2] + 8, x, y, z + 8.5)) seen++
         const v = rr + seen * 60
         if (v < bv) { bv = v; best = [x, y] }
       }
@@ -1437,12 +1454,12 @@ export class Brain {
         const g = this.map.gIdx(x, y)
         if (this.map.blocked[g] & 1) continue
         const z = this.map.surfAt(x, y)
-        let hidden = !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 6) && !this.map.los(e.pos[0], e.pos[1], ez, x, y, z + 9)
+        let hidden = !this.vis(e.pos[0], e.pos[1], ez, x, y, z + 6) && !this.vis(e.pos[0], e.pos[1], ez, x, y, z + 9)
         if (hidden && (this.opts.evadeAll ?? false)) {
           // hide from every hunter we know about, not just the one we were fighting
           for (const o of this.tracks.values()) {
             if (o === e || !this.hunterIds.has(o.id) || t - o.seenT > 5 || hyp(o.pos[0] - x, o.pos[1] - y) > 230) continue
-            if (this.map.los(o.pos[0], o.pos[1], o.pos[2] + 8, x, y, z + 6)) { hidden = false; break }
+            if (this.vis(o.pos[0], o.pos[1], o.pos[2] + 8, x, y, z + 6)) { hidden = false; break }
           }
         }
         const de = hyp(x - e.pos[0], y - e.pos[1])

@@ -63,6 +63,7 @@ export class Sim {
   pickups: { id: number; kind: string; pos: V3; ammo?: number }[] = []
   projs: Proj[] = []
   drops: any[] = []
+  canopy = false
   zone: any
   zonePhase = 0
   nextId = { proj: 1, cube: 5000, pick: 8000, drop: 20000 }
@@ -208,6 +209,7 @@ export class Sim {
       if (Math.abs(wrap(Math.atan2(dy, dx) - a.aim[0])) > (this.cfg.vision.fov_deg * Math.PI) / 360) return false
     }
     const ez = a.pos[2] + a.stats.eye_height * sc
+    if (this.canopy && d > near) return this.map.visLos(a.pos[0], a.pos[1], ez, tp[0], tp[1], tp[2] + th * 0.5) || this.map.visLos(a.pos[0], a.pos[1], ez, tp[0], tp[1], tp[2] + th)
     return this.map.los(a.pos[0], a.pos[1], ez, tp[0], tp[1], tp[2] + th * 0.5) || this.map.los(a.pos[0], a.pos[1], ez, tp[0], tp[1], tp[2] + th)
   }
 
